@@ -1,0 +1,119 @@
+package com.localdownloader.domain.models
+
+import com.localdownloader.domain.models.VaultSettings
+
+/**
+ * User preferences that influence yt-dlp argument generation.
+ */
+const val SYSTEM_LANGUAGE_TAG = "system"
+
+data class AppSettings(
+    val languageTag: String = SYSTEM_LANGUAGE_TAG,
+    val themeMode: ThemeMode = ThemeMode.LIGHT,
+    val accentPreset: AccentPreset = AccentPreset.TEAL,
+    val contrastMode: ContrastMode = ContrastMode.ULTRA,
+    val defaultOutputTemplate: String = "%(title)s [%(id)s].%(ext)s",
+    val defaultAudioOutputTemplate: String = "%(title)s [%(id)s].%(ext)s",
+    val defaultMergeContainer: String = "auto",
+    val defaultAudioFormat: String = "mp3",
+    val downloadsRootFolderName: String = "LocalDownloader",
+    val downloadsRootPublicPath: String = "",
+    val downloadsRootTreeUri: String = "",
+    val videoSubfolderName: String = "Videos",
+    val audioSubfolderName: String = "Audio",
+    val otherSubfolderName: String = "Files",
+    val autoDownloadSubtitles: Boolean = false,
+    val autoEmbedSubtitles: Boolean = false,
+    val autoEmbedMetadata: Boolean = true,
+    val autoEmbedThumbnail: Boolean = true,
+    val autoRemoveMissingFilesFromLibrary: Boolean = true,
+    val deleteFromStorageWhenRemovedInApp: Boolean = true,
+    val notifyCompletedDownloads: Boolean = true,
+    val notifyDownloadErrors: Boolean = true,
+    val notifyCanceledDownloads: Boolean = true,
+    val notifyPromotions: Boolean = true,
+    val backupLogsToDevice: Boolean = false,
+    val autoDeleteOldAppLogs: Boolean = false,
+    val appLogRetentionDays: Int = 15,
+    val appLogMaxSizeBytes: Long = 2L * 1024L * 1024L,
+    val keepAnalyzedLinkHistory: Boolean = true,
+    val analyzedLinkHistoryRetentionDays: Int = 15,
+    val downloadHistoryRetentionDays: Int = 30,
+    val cookiesEnabled: Boolean = false,
+    val cookieUserAgentEnabled: Boolean = false,
+    val cookieProfiles: List<CookieProfile> = emptyList(),
+    val youtubeAuthConfig: YoutubeAuthConfig = YoutubeAuthConfig(),
+    val hasSeenDownloadSetupNotice: Boolean = false,
+    val maxConcurrentDownloads: Int = 2,
+    val defaultConcurrentFragments: Int = 4,
+    val batterySaverMode: BatterySaverMode = BatterySaverMode.AUTO,
+    val downloadOnlyWhileCharging: Boolean = false,
+    val pauseDownloadsOnLowBattery: Boolean = false,
+    val lowBatteryThresholdPercent: Int = 15,
+    val allowMeteredDownloads: Boolean = false,
+    val showFormatFps: Boolean = true,
+    val showFormatCodec: Boolean = true,
+    val showFormatBitrate: Boolean = true,
+    val formatSelectorStyle: FormatSelectorStyle = FormatSelectorStyle.BOTTOM_SHEET,
+    val darkTheme: Boolean = false,
+    val vaultSettings: VaultSettings = VaultSettings(),
+    val subtitleViewSettings: SubtitleViewSettings = SubtitleViewSettings(),
+)
+
+@kotlinx.serialization.Serializable
+data class SubtitleViewSettings(
+    val fontSizeScale: Float = 1.0f,
+    val textColor: String = "White",
+    val backgroundColor: String = "SemiTransparentBlack",
+    val edgeType: String = "Outline",
+    val edgeColor: String = "Black",
+    val typeface: String = "Default",
+    val bottomOffsetFraction: Float = 0.08f,
+)
+
+enum class BatterySaverMode {
+    OFF,
+    AUTO,
+    ALWAYS_ON,
+}
+
+enum class FormatSelectorStyle {
+    BOTTOM_SHEET,
+    DROPDOWN,
+}
+
+enum class ThemeMode {
+    SYSTEM,
+    LIGHT,
+    DARK,
+}
+
+enum class AccentPreset {
+    AMBER,
+    OCEAN,
+    COBALT,
+    INDIGO,
+    SKY,
+    AQUA,
+    TEAL,
+    MINT,
+    EMERALD,
+    FOREST,
+    ROSE,
+    CRIMSON,
+    MAGENTA,
+    PURPLE,
+    YELLOW,
+    LIME,
+    ORANGE,
+    PEACH,
+    COPPER,
+    MONOCHROME,
+}
+
+enum class ContrastMode {
+    SOFT,
+    STANDARD,
+    HIGH,
+    ULTRA,
+}

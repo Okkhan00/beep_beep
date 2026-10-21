@@ -1,0 +1,54 @@
+name: Cleanup Artifacts
+
+on:
+  workflow_call:
+    inputs:
+      days:
+        description: Delete artifacts older than X days
+        required: false
+        type: string
+        default: "2"
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    
+    steps:
+      - name: Delete old artifacts
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const days = Number.parseInt('${{ inputs.days }}', 10);
+            if (!Number.isFinite(days) || days < 0) {
+              core.setFailed(`Invalid retention days value: ${days}`);
+              return;
+            }
+            const cutoffDate = new Date();
+            cutoffDate.setDate(cutoffDate.getDate() - days);
+            
+            const artifacts = await github.paginate(github.rest.actions.listArtifactsForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100
+            });
+            
+            console.log(`Found ${artifacts.length} artifacts`);
+            
+            let deleted = 0;
+            for (const artifact of artifacts) {
+              const createdDate = new Date(artifact.created_at);
+              if (createdDate < cutoffDate) {
+                console.log(`Deleting artifact: ${artifact.name} (created: ${artifact.created_at})`);
+                await github.rest.actions.deleteArtifact({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  artifact_id: artifact.id
+                });
+                deleted++;
+              }
+            }
+            
+            console.log(`Deleted ${deleted} artifacts older than ${days} days`);

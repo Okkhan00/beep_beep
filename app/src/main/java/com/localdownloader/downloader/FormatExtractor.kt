@@ -1,0 +1,1230 @@
+package com.localdownloader.downloader
+
+import android.content.Context
+import com.localdownloader.domain.models.MediaFormat
+import com.localdownloader.domain.models.PlaylistEntry
+import com.localdownloader.domain.models.SubtitleTrack
+import com.localdownloader.domain.models.VideoInfo
+import com.localdownloader.utils.Logger
+import com.localdownloader.utils.SensitiveDataSanitizer
+import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
+import java.net.URI
+import java.util.Locale
+import java.util.zip.CRC32
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
+import javax.inject.Inject
+import javax.inject.Singleton
+
+@Singleton
+class FormatExtractor @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val ytDlpExecutor: YtDlpExecutor,
+    private val json: Json,
+    private val logger: Logger,
+) {
+    suspend fun analyze(
+        url: String,
+        cookiesPath: String? = null,
+        userAgent: String? = null,
+        preferredExtractorArgs: String? = null,
+    ): Result<VideoInfo> {
+        return runCatching {
+            logger.i("FormatExtractor", "Starting yt-dlp analyze for URL: $url")
+            val analyzeMode = resolveAnalyzeRequestMode(url)
+            val isYoutube = isYoutubeUrl(url)
+
+            val hasCookies = !cookiesPath.isNullOrBlank() && File(cookiesPath).exists()
+            val extractorCandidates = if (isYoutube) {
+                YoutubeRequestPlanner.analyzeCandidates(
+                    cookiesAvailable = hasCookies,
+                    preferredExtractorArgs = preferredExtractorArgs,
+                )
+            } else {
+                listOf<String?>(null)
+            }
+
+            var best: AnalyzeCandidate? = if (!isYoutube && analyzeMode == AnalyzeRequestMode.STANDARD) {
+                loadRecentAnalyzeSnapshot(url)
+            } else {
+                null
+            }
+            var lastFailureMessage: String? = null
+            var isFatalSystem = false
+            extractorCandidates.forEachIndexed { index, extractorArgs ->
+                if (isFatalSystem) return@forEachIndexed
+                if (analyzeMode == AnalyzeRequestMode.YOUTUBE_PLAYLIST_FAST &&
+                    best?.isPlaylistResult == true &&
+                    (best?.playlistEntryCount ?: 0) > 0
+                ) {
+                    return@forEachIndexed
+                }
+                if (best != null && !shouldTryMoreCandidates(best?.stats)) return@forEachIndexed
+                val attempt = runCatching {
+                    analyzeWithExtractor(
+                        url = url,
+                        extractorArgs = extractorArgs,
+                        cookiesPath = cookiesPath,
+                        userAgent = userAgent,
+                        requestMode = analyzeMode,
+                    )
+                }.getOrElse { error ->
+                    logger.w(
+                        "FormatExtractor",
+                        "Analyze candidate[$index] crashed for args=${extractorArgs ?: "(default)"}",
+                        error,
+                    )
+                    AnalyzeAttempt(
+                        candidate = null,
+                        errorMessage = sanitizeAnalyzeFailureMessage(
+                            error.message?.takeIf { it.isNotBlank() } ?: "yt-dlp analyze failed",
+                        ),
+                    )
+                }
+                val candidate = attempt.candidate
+                if (candidate != null) {
+                    val stats = candidate.stats
+                    val descriptor = extractorArgs ?: "(default)"
+                    if (analyzeMode == AnalyzeRequestMode.YOUTUBE_PLAYLIST_FAST) {
+                        logger.i(
+                            "FormatExtractor",
+                            "Analyze candidate[$index] args=$descriptor playlistEntries=${candidate.playlistEntryCount} playlist=${candidate.isPlaylistResult}",
+                        )
+                    } else {
+                        logger.i(
+                            "FormatExtractor",
+                            "Analyze candidate[$index] args=$descriptor formats=${stats.total} videoOnly=${stats.videoOnly} audioOnly=${stats.audioOnly} maxHeight=${stats.maxHeight}",
+                        )
+                    }
+                    if (analyzeMode == AnalyzeRequestMode.YOUTUBE_PLAYLIST_FAST) {
+                        if (best == null || candidate.playlistEntryCount > (best?.playlistEntryCount ?: -1)) {
+                            best = candidate
+                        }
+                        if (candidate.isPlaylistResult && candidate.playlistEntryCount > 0) return@forEachIndexed
+                        return@forEachIndexed
+                    }
+                    if (best == null || stats.isBetterThan(best?.stats)) {
+                        best = candidate
+                    }
+                    if (stats.hasAdaptiveVideo) return@forEachIndexed
+                } else if (!attempt.errorMessage.isNullOrBlank()) {
+                    lastFailureMessage = attempt.errorMessage
+                    if (isFatalSystemError(attempt.errorMessage)) {
+                        isFatalSystem = true
+                        logger.w("FormatExtractor", "Aborting candidate execution loop due to fatal system error: ${attempt.errorMessage}")
+                    }
+                }
+            }
+
+            val resolved = best ?: throw IllegalStateException(lastFailureMessage ?: "yt-dlp analyze failed")
+            mapVideoInfo(
+                root = resolved.root,
+                fallbackUrl = url,
+                extractorArgs = resolved.extractorArgs,
+                infoJsonPath = resolved.infoJsonPath,
+            ).also { info ->
+                logger.i(
+                    "FormatExtractor",
+                    "Analyze parsed successfully title='${info.title}', formats=${info.formats.size}, extractorArgs=${resolved.extractorArgs}",
+                )
+                logFormatSummary(url = url, formats = info.formats, extractorArgs = resolved.extractorArgs)
+            }
+        }.onFailure { error ->
+            logger.e("FormatExtractor", "Analyze exception for URL: $url", error)
+        }
+    }
+
+    private fun logFormatSummary(url: String, formats: List<MediaFormat>, extractorArgs: String?) {
+        if (!isYoutubeUrl(url)) return
+        val videoOnly = formats.filter { it.isVideoOnly }
+        val audioOnly = formats.filter { it.isAudioOnly }
+        val muxed = formats.filter { !it.isVideoOnly && !it.isAudioOnly }
+        val maxHeight = formats.mapNotNull { parseHeight(it.resolution) }.maxOrNull() ?: 0
+        logger.i(
+            "FormatExtractor",
+            "YouTube formats summary extractorArgs=${extractorArgs ?: "(none)"} total=${formats.size} videoOnly=${videoOnly.size} audioOnly=${audioOnly.size} muxed=${muxed.size} maxHeight=${maxHeight}",
+        )
+        formats.take(12).forEachIndexed { index, format ->
+            logger.i(
+                "FormatExtractor",
+                "Format[$index] id=${format.formatId} ext=${format.extension} res=${format.resolution} vcodec=${format.videoCodec} acodec=${format.audioCodec} fps=${format.fps ?: "-"} tbr=${format.bitrateKbps ?: "-"}",
+            )
+        }
+    }
+
+    private fun mapVideoInfo(
+        root: JsonObject,
+        fallbackUrl: String,
+        extractorArgs: String?,
+        infoJsonPath: String?,
+    ): VideoInfo {
+        val playlistEntries = parsePlaylistEntries(
+            entries = root["entries"] as? JsonArray,
+            playlistSourceUrl = fallbackUrl,
+        )
+        val rootFormats = parseFormats(root["formats"] as? JsonArray ?: JsonArray(emptyList()))
+        val fallbackFormats = firstEntryWithFormats(root["entries"] as? JsonArray)
+            ?.let(::parseFormats)
+            .orEmpty()
+        val requestedFormats = parseRequestedFormats(root)
+        val inlineFallbackFormat = parseInlineRootFormat(root)?.let(::listOf).orEmpty()
+        val formats = rootFormats
+            .ifEmpty { fallbackFormats }
+            .ifEmpty { requestedFormats }
+            .ifEmpty { inlineFallbackFormat }
+        val type = root["\u005ftype"]?.jsonPrimitive?.contentOrNull
+        val subtitles = parseSubtitles(root["subtitles"] as? JsonObject, isAutoGenerated = false)
+        val automaticCaptions = parseSubtitles(root["automatic_captions"] as? JsonObject, isAutoGenerated = true)
+        return VideoInfo(
+            id = root["id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+            title = root["title"]?.jsonPrimitive?.contentOrNull ?: "Untitled",
+            uploader = root["uploader"]?.jsonPrimitive?.contentOrNull,
+            durationSeconds = root["duration"]?.jsonPrimitive?.longOrNull,
+            thumbnailUrl = root["thumbnail"]?.jsonPrimitive?.contentOrNull
+                ?: playlistEntries.firstOrNull()?.thumbnailUrl,
+            webpageUrl = root["webpage_url"]?.jsonPrimitive?.contentOrNull ?: fallbackUrl,
+            formats = formats,
+            extractorArgs = extractorArgs,
+            infoJsonPath = infoJsonPath,
+            isPlaylist = type == "playlist",
+            playlistCount = root["playlist_count"]?.jsonPrimitive?.intOrNull ?: playlistEntries.size.takeIf { it > 0 },
+            playlistEntries = playlistEntries,
+            subtitles = subtitles,
+            automaticCaptions = automaticCaptions,
+        )
+    }
+
+    private fun parsePlaylistEntries(
+        entries: JsonArray?,
+        playlistSourceUrl: String,
+    ): List<PlaylistEntry> {
+        return entries.orEmpty().mapIndexedNotNull { index, element ->
+            val item = element as? JsonObject ?: return@mapIndexedNotNull null
+            val id = item["id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            val title = item["title"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            val rawWebpageUrl = item["webpage_url"]?.jsonPrimitive?.contentOrNull
+                ?: item["original_url"]?.jsonPrimitive?.contentOrNull
+                ?: item["url"]?.jsonPrimitive?.contentOrNull
+            val webpageUrl = resolvePlaylistEntryWebpageUrl(
+                rawUrl = rawWebpageUrl,
+                entryId = id,
+                playlistSourceUrl = playlistSourceUrl,
+            )
+                ?: return@mapIndexedNotNull null
+            if (title.isBlank() && id.isBlank()) return@mapIndexedNotNull null
+            PlaylistEntry(
+                playlistItemIndex = index + 1,
+                id = id,
+                title = title.ifBlank { "Item ${index + 1}" },
+                webpageUrl = webpageUrl,
+                uploader = item["uploader"]?.jsonPrimitive?.contentOrNull,
+                durationSeconds = item["duration"]?.jsonPrimitive?.longOrNull,
+                thumbnailUrl = item["thumbnail"]?.jsonPrimitive?.contentOrNull,
+                formats = parseFormats(item["formats"] as? JsonArray ?: JsonArray(emptyList())),
+            )
+        }
+    }
+
+    private fun firstEntryWithFormats(entries: JsonArray?): JsonArray? {
+        return entries.orEmpty()
+            .asSequence()
+            .mapNotNull { it as? JsonObject }
+            .mapNotNull { it["formats"] as? JsonArray }
+            .firstOrNull { it.isNotEmpty() }
+    }
+
+    private suspend fun analyzeWithExtractor(
+        url: String,
+        extractorArgs: String?,
+        cookiesPath: String?,
+        userAgent: String?,
+        requestMode: AnalyzeRequestMode,
+    ): AnalyzeAttempt {
+        val cachedInfoJsonPath = when (requestMode) {
+            AnalyzeRequestMode.STANDARD -> resolveRecentInfoJsonSnapshotPath(url)
+            AnalyzeRequestMode.YOUTUBE_PLAYLIST_FAST -> null
+        }
+        val capturedInfoJsonFile = when (requestMode) {
+            AnalyzeRequestMode.STANDARD -> createAnalyzeCaptureFile(url = url, extractorArgs = extractorArgs)
+            AnalyzeRequestMode.YOUTUBE_PLAYLIST_FAST -> null
+        }
+        val primaryAttempt = executeAnalyzeAttempt(
+            url = url,
+            extractorArgs = extractorArgs,
+            cookiesPath = cookiesPath,
+            userAgent = userAgent,
+            capturedInfoJsonFile = capturedInfoJsonFile,
+            loadInfoJsonPath = cachedInfoJsonPath,
+            socketTimeoutSeconds = DEFAULT_ANALYZE_SOCKET_TIMEOUT_SECONDS,
+            useLineJsonMode = false,
+            requestMode = requestMode,
+        )
+        if (primaryAttempt.candidate != null) {
+            return primaryAttempt
+        }
+
+        if (requestMode == AnalyzeRequestMode.YOUTUBE_PLAYLIST_FAST) {
+            return primaryAttempt
+        }
+
+        if (!isYoutubeUrl(url)) {
+            val lineJsonAttempt = executeAnalyzeAttempt(
+                url = url,
+                extractorArgs = extractorArgs,
+                cookiesPath = cookiesPath,
+                userAgent = userAgent,
+                capturedInfoJsonFile = capturedInfoJsonFile,
+                loadInfoJsonPath = cachedInfoJsonPath,
+                socketTimeoutSeconds = DEFAULT_ANALYZE_SOCKET_TIMEOUT_SECONDS,
+                useLineJsonMode = true,
+                requestMode = requestMode,
+            )
+            if (lineJsonAttempt.candidate != null) {
+                return lineJsonAttempt
+            }
+
+            if (!shouldRetryAnalyzeWithExtendedTimeout(primaryAttempt.errorMessage, lineJsonAttempt.errorMessage)) {
+                return resolveFailedAnalyzeAttempt(primaryAttempt, lineJsonAttempt)
+            }
+
+            logger.i(
+                "FormatExtractor",
+                "Retrying non-YouTube analyze with a longer socket timeout after transient failure",
+            )
+
+            val extendedPrimaryAttempt = executeAnalyzeAttempt(
+                url = url,
+                extractorArgs = extractorArgs,
+                cookiesPath = cookiesPath,
+                userAgent = userAgent,
+                capturedInfoJsonFile = capturedInfoJsonFile,
+                loadInfoJsonPath = cachedInfoJsonPath,
+                socketTimeoutSeconds = EXTENDED_ANALYZE_SOCKET_TIMEOUT_SECONDS,
+                useLineJsonMode = false,
+                requestMode = requestMode,
+            )
+            if (extendedPrimaryAttempt.candidate != null) {
+                return extendedPrimaryAttempt
+            }
+
+            val extendedLineJsonAttempt = executeAnalyzeAttempt(
+                url = url,
+                extractorArgs = extractorArgs,
+                cookiesPath = cookiesPath,
+                userAgent = userAgent,
+                capturedInfoJsonFile = capturedInfoJsonFile,
+                loadInfoJsonPath = cachedInfoJsonPath,
+                socketTimeoutSeconds = EXTENDED_ANALYZE_SOCKET_TIMEOUT_SECONDS,
+                useLineJsonMode = true,
+                requestMode = requestMode,
+            )
+            if (extendedLineJsonAttempt.candidate != null) {
+                return extendedLineJsonAttempt
+            }
+
+            return resolveFailedAnalyzeAttempt(
+                primaryAttempt,
+                lineJsonAttempt,
+                extendedPrimaryAttempt,
+                extendedLineJsonAttempt,
+            )
+        }
+
+        return primaryAttempt
+    }
+
+    private suspend fun executeAnalyzeAttempt(
+        url: String,
+        extractorArgs: String?,
+        cookiesPath: String?,
+        userAgent: String?,
+        capturedInfoJsonFile: File?,
+        loadInfoJsonPath: String?,
+        socketTimeoutSeconds: Int,
+        useLineJsonMode: Boolean,
+        requestMode: AnalyzeRequestMode,
+    ): AnalyzeAttempt {
+        val args = buildAnalyzeArgs(
+            url = url,
+            extractorArgs = extractorArgs,
+            cookiesPath = cookiesPath,
+            userAgent = userAgent,
+            capturedInfoJsonFile = capturedInfoJsonFile,
+            loadInfoJsonPath = loadInfoJsonPath,
+            socketTimeoutSeconds = socketTimeoutSeconds,
+            useLineJsonMode = useLineJsonMode,
+            requestMode = requestMode,
+        )
+        val processTimeoutMs = analyzeProcessTimeoutMillis(socketTimeoutSeconds)
+
+        capturedInfoJsonFile?.delete()
+        val commandOutcome = runCatching { executeAnalyzeCommand(args, processTimeoutMs) }
+        val result = commandOutcome.getOrNull()
+        val commandError = commandOutcome.exceptionOrNull()
+        if (result != null) {
+            logger.i(
+                "FormatExtractor",
+                "Analyze command finished exitCode=${result.exitCode}, stdoutLen=${result.stdout.length}, stderrLen=${result.stderr.length}, socketTimeout=${socketTimeoutSeconds}s, lineJson=$useLineJsonMode",
+            )
+        } else {
+            logger.w(
+                "FormatExtractor",
+                "Analyze command threw before returning a result, socketTimeout=${socketTimeoutSeconds}s, lineJson=$useLineJsonMode",
+                commandError,
+            )
+        }
+
+        val parsedAttempt = parseAnalyzeSuccess(
+            url = url,
+            extractorArgs = extractorArgs,
+            stdout = result?.stdout.orEmpty(),
+            capturedInfoJsonPath = capturedInfoJsonFile?.absolutePath,
+        )
+        if (parsedAttempt.candidate != null) {
+            return parsedAttempt
+        }
+
+        if (commandError != null) {
+            return AnalyzeAttempt(
+                candidate = null,
+                errorMessage = sanitizeAnalyzeFailureMessage(
+                    commandError.message?.takeIf { it.isNotBlank() } ?: "yt-dlp analyze failed",
+                ),
+            )
+        }
+
+        val resolvedResult = result ?: return AnalyzeAttempt(
+            candidate = null,
+            errorMessage = "yt-dlp analyze failed",
+        )
+
+        if (!resolvedResult.isSuccess) {
+            val failureMessage = extractAnalyzeFailureMessage(resolvedResult.stderr, resolvedResult.stdout)
+            if (looksLikeClosedStreamFailure(failureMessage)) {
+                logger.w("FormatExtractor", "Analyze returned transient closed-stream failure; retrying once")
+                capturedInfoJsonFile?.delete()
+                val retryResult = executeAnalyzeCommand(args, processTimeoutMs)
+                logger.i(
+                    "FormatExtractor",
+                    "Analyze retry finished exitCode=${retryResult.exitCode}, stdoutLen=${retryResult.stdout.length}, stderrLen=${retryResult.stderr.length}, socketTimeout=${socketTimeoutSeconds}s, lineJson=$useLineJsonMode",
+                )
+                val parsedRetry = parseAnalyzeSuccess(
+                    url = url,
+                    extractorArgs = extractorArgs,
+                    stdout = retryResult.stdout,
+                    capturedInfoJsonPath = capturedInfoJsonFile?.absolutePath,
+                )
+                if (parsedRetry.candidate != null) {
+                    return parsedRetry
+                }
+                logger.w("FormatExtractor", "Analyze retry failed stderr=${retryResult.stderr.take(1000)}")
+                return AnalyzeAttempt(
+                    candidate = null,
+                    errorMessage = sanitizeAnalyzeFailureMessage(
+                        extractAnalyzeFailureMessage(retryResult.stderr, retryResult.stdout),
+                    ),
+                )
+            }
+            logger.w("FormatExtractor", "Analyze failed stderr=${resolvedResult.stderr.take(1000)}")
+            return AnalyzeAttempt(
+                candidate = null,
+                errorMessage = sanitizeAnalyzeFailureMessage(failureMessage),
+            )
+        }
+
+        return parsedAttempt
+    }
+
+    private fun buildAnalyzeArgs(
+        url: String,
+        extractorArgs: String?,
+        cookiesPath: String?,
+        userAgent: String?,
+        capturedInfoJsonFile: File?,
+        loadInfoJsonPath: String?,
+        socketTimeoutSeconds: Int,
+        useLineJsonMode: Boolean,
+        requestMode: AnalyzeRequestMode,
+    ): List<String> {
+        val tempDir = File(context.cacheDir, "tmp").apply { mkdirs() }
+        return buildAnalyzeArgsForRequest(
+            url = url,
+            extractorArgs = extractorArgs,
+            cookiesPath = cookiesPath,
+            userAgent = userAgent,
+            capturedInfoJsonPath = capturedInfoJsonFile?.absolutePath,
+            loadInfoJsonPath = loadInfoJsonPath,
+            tempDirPath = tempDir.absolutePath,
+            socketTimeoutSeconds = socketTimeoutSeconds,
+            useLineJsonMode = useLineJsonMode,
+            requestMode = requestMode,
+        )
+    }
+
+    private fun extractAnalyzeFailureMessage(stderr: String, stdout: String): String {
+        return preferredAnalyzeFailureLine(stderr)
+            ?: preferredAnalyzeFailureLine(stdout)
+            ?: "yt-dlp analyze failed"
+    }
+
+    private suspend fun executeAnalyzeCommand(
+        args: List<String>,
+        timeoutMs: Long,
+    ): CommandResult {
+        return runCatching {
+            ytDlpExecutor.execute(
+                args = args,
+                logOutputLines = false,
+                timeoutMs = timeoutMs,
+            )
+        }.recoverCatching { error ->
+            if (error.matchesClosedStreamFailure()) {
+                logger.w("FormatExtractor", "Analyze command hit closed-stream race; retrying once", error)
+                ytDlpExecutor.execute(
+                    args = args,
+                    logOutputLines = false,
+                    timeoutMs = timeoutMs,
+                )
+            } else {
+                throw error
+            }
+        }.getOrThrow()
+    }
+
+    private fun parseAnalyzeSuccess(
+        url: String,
+        extractorArgs: String?,
+        stdout: String,
+        capturedInfoJsonPath: String?,
+    ): AnalyzeAttempt {
+        var lastError: Throwable? = null
+        fun tryParseSource(rawJson: String, sourceLabel: String): AnalyzeAttempt? {
+            val parsed = runCatching {
+                val root = json.parseToJsonElement(rawJson).jsonObject
+                val formats = parseFormats(root["formats"] as? JsonArray ?: JsonArray(emptyList()))
+                val playlistEntries = root["entries"] as? JsonArray
+                val playlistEntryCount = playlistEntries?.size ?: 0
+                val type = root["_type"]?.jsonPrimitive?.contentOrNull
+                val infoJsonPath = persistInfoJsonSnapshot(
+                    url = url,
+                    root = root,
+                    rawJson = rawJson,
+                )
+                AnalyzeAttempt(
+                    candidate = AnalyzeCandidate(
+                        root = root,
+                        formats = formats,
+                        extractorArgs = extractorArgs,
+                        infoJsonPath = infoJsonPath,
+                        stats = FormatStats.from(formats),
+                        isPlaylistResult = type == "playlist" || playlistEntryCount > 0,
+                        playlistEntryCount = playlistEntryCount,
+                    ),
+                    errorMessage = null,
+                )
+            }
+            parsed.getOrNull()?.let { return it }
+            lastError = parsed.exceptionOrNull()
+            logger.w("FormatExtractor", "Analyze JSON parse failed for $sourceLabel", lastError)
+            return null
+        }
+
+        val capturedJson = readCapturedAnalyzeJson(capturedInfoJsonPath)
+        if (!capturedJson.isNullOrBlank()) {
+            tryParseSource(capturedJson, "captured info-json")?.let { return it }
+        }
+
+        val normalizedStdout = stdout.trim().takeIf { it.isNotBlank() }
+        if (!normalizedStdout.isNullOrBlank() && normalizedStdout != capturedJson) {
+            tryParseSource(normalizedStdout, "stdout fallback")?.let { return it }
+        }
+
+        return AnalyzeAttempt(
+            candidate = null,
+            errorMessage = sanitizeAnalyzeFailureMessage(
+                lastError?.message?.takeIf { it.isNotBlank() } ?: "yt-dlp returned unreadable analyze output",
+            ),
+        )
+    }
+
+    private fun createAnalyzeCaptureFile(url: String, extractorArgs: String?): File {
+        val key = buildString {
+            append(url)
+            append('|')
+            append(extractorArgs.orEmpty())
+        }
+        val hash = CRC32().apply { update(key.toByteArray()) }.value.toString(16)
+        val directory = File(context.cacheDir, "ytdlp-analyze").apply { mkdirs() }
+        return File(directory, "$hash-${System.currentTimeMillis()}.info.json")
+    }
+
+    private fun readCapturedAnalyzeJson(path: String?): String? {
+        if (path.isNullOrBlank()) return null
+        val file = File(path)
+        if (!file.exists()) return null
+        return runCatching { file.readText() }
+            .getOrElse { error ->
+                logger.w("FormatExtractor", "Unable to read captured analyze info-json", error)
+                null
+            }
+            ?.trim()
+            ?.ifBlank { null }
+    }
+
+    private fun loadRecentAnalyzeSnapshot(url: String): AnalyzeCandidate? {
+        val cachedInfoJsonPath = resolveRecentInfoJsonSnapshotPath(url) ?: return null
+        return parseAnalyzeSuccess(
+            url = url,
+            extractorArgs = null,
+            stdout = "",
+            capturedInfoJsonPath = cachedInfoJsonPath,
+        ).candidate
+    }
+
+    private fun isYoutubeUrl(url: String): Boolean {
+        return looksLikeYoutubeUrl(url)
+    }
+
+    private fun resolveAnalyzeRequestMode(url: String): AnalyzeRequestMode {
+        return if (shouldUseFastPlaylistAnalyze(url)) {
+            AnalyzeRequestMode.YOUTUBE_PLAYLIST_FAST
+        } else {
+            AnalyzeRequestMode.STANDARD
+        }
+    }
+
+    private fun resolvePlaylistEntryWebpageUrl(
+        rawUrl: String?,
+        entryId: String,
+        playlistSourceUrl: String,
+    ): String? {
+        val candidate = rawUrl?.trim().orEmpty()
+        if (candidate.startsWith("https://") || candidate.startsWith("http://")) {
+            return candidate
+        }
+        resolveRelativePlaylistEntryUrl(
+            playlistSourceUrl = playlistSourceUrl,
+            candidate = candidate,
+        )?.let { return it }
+        if (looksLikeYoutubeUrl(playlistSourceUrl)) {
+            if (candidate.startsWith("/")) {
+                return "https://www.youtube.com$candidate"
+            }
+            if (candidate.startsWith("watch?") || candidate.startsWith("shorts/")) {
+                return "https://www.youtube.com/$candidate"
+            }
+            val videoId = entryId.ifBlank { candidate }.trim()
+            if (videoId.isNotBlank()) {
+                val playlistId = extractYoutubePlaylistId(playlistSourceUrl)
+                return buildString {
+                    append("https://www.youtube.com/watch?v=")
+                    append(videoId)
+                    playlistId?.let {
+                        append("&list=")
+                        append(it)
+                    }
+                }
+            }
+        }
+        return candidate.ifBlank { null }
+    }
+
+    private fun resolveRelativePlaylistEntryUrl(
+        playlistSourceUrl: String,
+        candidate: String,
+    ): String? {
+        if (candidate.isBlank()) return null
+        if (candidate.startsWith("//")) {
+            val scheme = if (playlistSourceUrl.startsWith("http://")) "http" else "https"
+            return "$scheme:$candidate"
+        }
+        if (looksLikeYoutubeUrl(playlistSourceUrl) &&
+            !candidate.startsWith("/") &&
+            !candidate.contains('/') &&
+            !candidate.contains('?')
+        ) {
+            return null
+        }
+        return runCatching {
+            URI(playlistSourceUrl).resolve(candidate).toString()
+        }.getOrNull()?.takeIf { resolved ->
+            resolved.startsWith("https://") || resolved.startsWith("http://")
+        }
+    }
+
+    private fun persistInfoJsonSnapshot(
+        url: String,
+        root: JsonObject,
+        rawJson: String,
+    ): String? {
+        val type = root["_type"]?.jsonPrimitive?.contentOrNull
+        if (type == "playlist") return null
+
+        val file = persistedInfoJsonFile(url)
+        return runCatching {
+            file.writeText(rawJson)
+            file.absolutePath
+        }.getOrElse { error ->
+            logger.w("FormatExtractor", "Unable to persist analyze info-json snapshot", error)
+            null
+        }
+    }
+
+    private fun resolveRecentInfoJsonSnapshotPath(url: String): String? {
+        val file = persistedInfoJsonFile(url)
+        if (!file.exists()) return null
+        val ageMs = System.currentTimeMillis() - file.lastModified()
+        if (ageMs > PERSISTED_ANALYZE_INFO_JSON_TTL_MILLIS) {
+            runCatching { file.delete() }
+            return null
+        }
+        return file.absolutePath
+    }
+
+    private fun persistedInfoJsonFile(url: String): File {
+        val hash = CRC32().apply { update(url.toByteArray()) }.value.toString(16)
+        val directory = File(context.cacheDir, "ytdlp-info").apply { mkdirs() }
+        return File(directory, "$hash-video.info.json")
+    }
+
+    private fun preferredAnalyzeFailureLine(output: String): String? {
+        val lines = output.lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .map { it.removePrefix("ERROR: ") }
+            .toList()
+        return lines.firstOrNull { !looksLikeClosedStreamFailure(it) } ?: lines.firstOrNull()
+    }
+
+    private fun sanitizeAnalyzeFailureMessage(message: String): String {
+        val normalized = SensitiveDataSanitizer.sanitize(message.trim())
+        return if (looksLikeClosedStreamFailure(normalized)) {
+            "Link analysis was interrupted before yt-dlp returned a usable result. Please try again."
+        } else {
+            normalized.take(240)
+        }
+    }
+
+    private fun Throwable.matchesClosedStreamFailure(): Boolean {
+        return generateSequence(this) { it.cause }
+            .map { it.message.orEmpty() }
+            .any(::looksLikeClosedStreamFailure)
+    }
+
+    private fun looksLikeClosedStreamFailure(message: String): Boolean {
+        val detail = message.lowercase()
+        return detail.contains("i/o operation on closed file") ||
+            detail.contains("operation on closed file") ||
+            detail.contains("stream closed") ||
+            detail.contains("interrupted by close") ||
+            detail == "closed"
+    }
+
+    private fun isFatalSystemError(message: String): Boolean {
+        val detail = message.lowercase()
+        return detail.contains("exec format error") ||
+            detail.contains("dlopen failed") ||
+            detail.contains("cannot locate symbol") ||
+            detail.contains("linker") ||
+            detail.contains("permission denied") ||
+            detail.contains("no such file or directory")
+    }
+
+    private fun parseFormats(elements: JsonArray): List<MediaFormat> {
+        return elements.mapNotNull { element ->
+            parseFormatObject(element)
+        }.sortedWith(
+            compareByDescending<MediaFormat> { it.resolution?.substringBefore("p")?.toIntOrNull() ?: 0 }
+                .thenByDescending { it.bitrateKbps ?: 0 },
+        )
+    }
+
+    private fun parseFormatObject(element: JsonElement): MediaFormat? {
+        return parseFormatObject(
+            item = element.jsonObject,
+            fallbackFormatId = null,
+        )
+    }
+
+    private fun parseFormatObject(
+        item: JsonObject,
+        fallbackFormatId: String?,
+    ): MediaFormat? {
+        val formatId = item["format_id"]?.jsonPrimitive?.contentOrNull ?: fallbackFormatId ?: return null
+        val ext = item["ext"]?.jsonPrimitive?.contentOrNull ?: "bin"
+        val height = item["height"]?.jsonPrimitive?.intOrNull
+        val width = item["width"]?.jsonPrimitive?.intOrNull
+        val resolutionText = item["resolution"]?.jsonPrimitive?.contentOrNull
+        val resolution = when {
+            height != null -> "${height}p"
+            resolutionText != null -> resolutionText
+            width != null -> "${width}w"
+            else -> null
+        }
+
+        val approximateSize = item["filesize"]?.jsonPrimitive?.longOrNull
+            ?: item["filesize_approx"]?.jsonPrimitive?.longOrNull
+        val note = item["format_note"]?.jsonPrimitive?.contentOrNull
+        val language = item["language"]?.jsonPrimitive?.contentOrNull
+            ?.takeUnless { it.isBlank() || it.equals("und", ignoreCase = true) }
+        val languagePreference = item["language_preference"]?.jsonPrimitive?.intOrNull
+        val codecs = inferParsedCodecs(
+            extension = ext,
+            resolution = resolution,
+            rawVideoCodec = item["vcodec"]?.jsonPrimitive?.contentOrNull,
+            rawAudioCodec = item["acodec"]?.jsonPrimitive?.contentOrNull,
+            note = note,
+        )
+        if (
+            shouldIgnoreParsedFormat(
+                formatId = formatId,
+                extension = ext,
+                note = note,
+                resolvedVideoCodec = codecs.videoCodec,
+                resolvedAudioCodec = codecs.audioCodec,
+            )
+        ) {
+            return null
+        }
+
+        return MediaFormat(
+            formatId = formatId,
+            extension = ext,
+            container = ext,
+            resolution = resolution,
+            videoCodec = codecs.videoCodec,
+            audioCodec = codecs.audioCodec,
+            fileSizeBytes = approximateSize,
+            bitrateKbps = item["tbr"]?.jsonPrimitive?.doubleOrNull?.toInt(),
+            fps = item["fps"]?.jsonPrimitive?.doubleOrNull,
+            note = note,
+            language = language,
+            languagePreference = languagePreference,
+        )
+    }
+
+    private fun parseRequestedFormats(root: JsonObject): List<MediaFormat> {
+        val requestedFormats = root["requested_formats"] as? JsonArray
+        val requestedDownloads = root["requested_downloads"] as? JsonArray
+        return buildList {
+            requestedFormats?.forEach { add(it) }
+            requestedDownloads?.forEach { download ->
+                val item = download as? JsonObject ?: return@forEach
+                val nestedRequestedFormats = item["requested_formats"] as? JsonArray
+                if (nestedRequestedFormats != null) {
+                    nestedRequestedFormats.forEach { add(it) }
+                } else {
+                    add(item)
+                }
+            }
+        }.let(::JsonArray).let(::parseFormats)
+    }
+
+    private fun parseInlineRootFormat(root: JsonObject): MediaFormat? {
+        return parseFormatObject(
+            item = root,
+            fallbackFormatId = "best",
+        )
+    }
+
+    private fun parseHeight(resolution: String?): Int? {
+        val trimmed = resolution ?: return null
+        return trimmed.substringBefore("p", trimmed).toIntOrNull()
+    }
+
+    private data class AnalyzeCandidate(
+        val root: JsonObject,
+        val formats: List<MediaFormat>,
+        val extractorArgs: String?,
+        val infoJsonPath: String?,
+        val stats: FormatStats,
+        val isPlaylistResult: Boolean,
+        val playlistEntryCount: Int,
+    )
+
+    private data class AnalyzeAttempt(
+        val candidate: AnalyzeCandidate?,
+        val errorMessage: String?,
+    )
+
+    private data class FormatStats(
+        val total: Int,
+        val videoOnly: Int,
+        val audioOnly: Int,
+        val muxed: Int,
+        val maxHeight: Int,
+        val hasAdaptiveVideo: Boolean,
+    ) {
+        fun isBetterThan(other: FormatStats?): Boolean {
+            if (other == null) return true
+            if (total != other.total) return total > other.total
+            if (muxed != other.muxed) return muxed > other.muxed
+            if (videoOnly != other.videoOnly) return videoOnly > other.videoOnly
+            if (maxHeight != other.maxHeight) return maxHeight > other.maxHeight
+            return audioOnly > other.audioOnly
+        }
+
+        companion object {
+            fun from(formats: List<MediaFormat>): FormatStats {
+                val videoOnly = formats.count { it.isVideoOnly }
+                val audioOnly = formats.count { it.isAudioOnly }
+                val muxed = formats.count { !it.isVideoOnly && !it.isAudioOnly }
+                val maxHeight = formats.mapNotNull { parseHeight(it.resolution) }.maxOrNull() ?: 0
+                val hasAdaptiveVideo = videoOnly > 0 && maxHeight >= 720
+                return FormatStats(
+                    total = formats.size,
+                    videoOnly = videoOnly,
+                    audioOnly = audioOnly,
+                    muxed = muxed,
+                    maxHeight = maxHeight,
+                    hasAdaptiveVideo = hasAdaptiveVideo,
+                )
+            }
+
+            private fun parseHeight(resolution: String?): Int? {
+                val trimmed = resolution ?: return null
+                return trimmed.substringBefore("p", trimmed).toIntOrNull()
+            }
+        }
+    }
+
+    private fun shouldTryMoreCandidates(stats: FormatStats?): Boolean {
+        if (stats == null) return true
+        if (stats.videoOnly > 0 && stats.audioOnly > 0) return false
+        if (stats.audioOnly > 0 && stats.videoOnly == 0 && stats.maxHeight == 0) return false
+        if (stats.hasAdaptiveVideo) return false
+        if (stats.maxHeight >= 720 && stats.videoOnly > 0 && stats.audioOnly > 0) return false
+        if (stats.total >= 20) return false
+        return true
+    }
+
+    private fun resolveFailedAnalyzeAttempt(vararg attempts: AnalyzeAttempt): AnalyzeAttempt {
+        return attempts
+            .lastOrNull { !it.errorMessage.isNullOrBlank() }
+            ?: attempts.last()
+    }
+}
+
+internal const val DEFAULT_ANALYZE_SOCKET_TIMEOUT_SECONDS = 5
+internal const val EXTENDED_ANALYZE_SOCKET_TIMEOUT_SECONDS = 15
+internal const val DEFAULT_ANALYZE_PROCESS_TIMEOUT_MILLIS = 45_000L
+internal const val EXTENDED_ANALYZE_PROCESS_TIMEOUT_MILLIS = 90_000L
+
+internal fun analyzeProcessTimeoutMillis(socketTimeoutSeconds: Int): Long {
+    return if (socketTimeoutSeconds >= EXTENDED_ANALYZE_SOCKET_TIMEOUT_SECONDS) {
+        EXTENDED_ANALYZE_PROCESS_TIMEOUT_MILLIS
+    } else {
+        DEFAULT_ANALYZE_PROCESS_TIMEOUT_MILLIS
+    }
+}
+
+internal fun shouldRetryAnalyzeWithExtendedTimeout(vararg failureMessages: String?): Boolean {
+    return failureMessages
+        .mapNotNull { it?.takeIf(String::isNotBlank) }
+        .any(::isTransientAnalyzeFailure)
+}
+
+internal fun isTransientAnalyzeFailure(message: String): Boolean {
+    val lower = message.lowercase()
+    return lower.contains("read operation timed out") ||
+        lower.contains("read timed out") ||
+        lower.contains("timed out") ||
+        lower.contains("i/o timeout") ||
+        lower.contains("connection timed out") ||
+        lower.contains("temporary failure in name resolution") ||
+        lower.contains("no address associated with hostname") ||
+        lower.contains("failed to resolve") ||
+        lower.contains("network is unreachable") ||
+        lower.contains("connection reset") ||
+        lower.contains("connection aborted") ||
+        lower.contains("transport endpoint is not connected")
+}
+
+internal fun buildAnalyzeArgsForRequest(
+    url: String,
+    extractorArgs: String?,
+    cookiesPath: String?,
+    userAgent: String?,
+    capturedInfoJsonPath: String?,
+    loadInfoJsonPath: String? = null,
+    tempDirPath: String,
+    socketTimeoutSeconds: Int = DEFAULT_ANALYZE_SOCKET_TIMEOUT_SECONDS,
+    useLineJsonMode: Boolean,
+    requestMode: AnalyzeRequestMode = AnalyzeRequestMode.STANDARD,
+): List<String> {
+    return buildList {
+        add(if (useLineJsonMode) "-j" else "-J")
+        add("--skip-download")
+        add("--no-warnings")
+        add("--ignore-config")
+        add("--ignore-errors")
+        add("--no-clean-info-json")
+        if (!capturedInfoJsonPath.isNullOrBlank()) {
+            add("--print-to-file")
+            add("video:%()j")
+            add(capturedInfoJsonPath)
+        }
+        if (!loadInfoJsonPath.isNullOrBlank() && File(loadInfoJsonPath).exists()) {
+            add("--load-info-json")
+            add(loadInfoJsonPath)
+        }
+        add("-R")
+        add("1")
+        add("--compat-options")
+        add("manifest-filesize-approx")
+        add("--socket-timeout")
+        add(socketTimeoutSeconds.toString())
+        add("-P")
+        add(tempDirPath)
+        when (requestMode) {
+            AnalyzeRequestMode.STANDARD -> {
+                if (shouldForceNoPlaylistAnalyze(url)) {
+                    add("--no-playlist")
+                }
+                add("--write-auto-subs")
+            }
+            AnalyzeRequestMode.YOUTUBE_PLAYLIST_FAST -> {
+                add("--flat-playlist")
+                add("--lazy-playlist")
+            }
+        }
+        if (!cookiesPath.isNullOrBlank() && File(cookiesPath).exists()) {
+            add("--cookies")
+            add(cookiesPath)
+        }
+        if (!userAgent.isNullOrBlank()) {
+            add("--add-header")
+            add("User-Agent:$userAgent")
+        }
+        val resolvedExtractorArgs = if (looksLikeYoutubeUrl(url)) {
+            ensureYoutubeSkipTranslatedSubs(extractorArgs)
+        } else {
+            extractorArgs
+        }
+        if (!resolvedExtractorArgs.isNullOrBlank()) {
+            add("--extractor-args")
+            add(resolvedExtractorArgs)
+        }
+        add(url)
+    }
+}
+
+internal enum class AnalyzeRequestMode {
+    STANDARD,
+    YOUTUBE_PLAYLIST_FAST,
+}
+
+internal fun looksLikeYoutubeUrl(url: String): Boolean {
+    val normalized = url.lowercase()
+    return normalized.contains("youtube.com") || normalized.contains("youtu.be")
+}
+
+internal fun isLikelyYoutubePlaylistUrl(url: String): Boolean {
+    if (!looksLikeYoutubeUrl(url)) return false
+    val normalized = url.lowercase()
+    return normalized.contains("list=") || normalized.contains("/playlist")
+}
+
+internal fun shouldUseFastPlaylistAnalyze(url: String): Boolean {
+    val normalized = url.trim().lowercase()
+    if (normalized.isBlank()) return false
+    if (normalized.contains("soundcloud.com")) return false
+    if (looksLikeYoutubeUrl(url)) return isLikelyYoutubePlaylistUrl(url)
+    return PLAYLIST_ANALYZE_HINTS.any { hint -> normalized.contains(hint) }
+}
+
+internal fun shouldForceNoPlaylistAnalyze(url: String): Boolean {
+    return looksLikeYoutubeUrl(url) && !isLikelyYoutubePlaylistUrl(url)
+}
+
+internal fun extractYoutubePlaylistId(url: String): String? {
+    val listSegment = url.substringAfter("list=", missingDelimiterValue = "").trim()
+    if (listSegment.isBlank()) return null
+    return listSegment.substringBefore('&').ifBlank { null }
+}
+
+private const val PERSISTED_ANALYZE_INFO_JSON_TTL_MILLIS = 5 * 60 * 60 * 1000L
+
+private val PLAYLIST_ANALYZE_HINTS = listOf(
+    "list=",
+    "playlist=",
+    "album=",
+    "collection=",
+    "/playlist",
+    "/album/",
+    "/albums/",
+    "/mix/",
+    "/set/",
+    "/sets/",
+    "/collection/",
+    "/collections/",
+    "/featured/",
+)
+
+internal data class ParsedFormatCodecs(
+    val videoCodec: String,
+    val audioCodec: String,
+)
+
+internal fun inferParsedCodecs(
+    extension: String,
+    resolution: String?,
+    rawVideoCodec: String?,
+    rawAudioCodec: String?,
+    note: String?,
+): ParsedFormatCodecs {
+    val normalizedExt = extension.trim().lowercase()
+    val normalizedResolution = resolution?.trim()?.lowercase().orEmpty()
+    val normalizedNote = note?.trim()?.lowercase().orEmpty()
+    val normalizedVideoCodec = rawVideoCodec?.trim().orEmpty()
+    val normalizedAudioCodec = rawAudioCodec?.trim().orEmpty()
+
+    val explicitVideoNone = normalizedVideoCodec.equals("none", ignoreCase = true)
+    val explicitAudioNone = normalizedAudioCodec.equals("none", ignoreCase = true)
+    val hasVideoCodec = normalizedVideoCodec.isNotBlank() && !normalizedVideoCodec.equals("none", ignoreCase = true)
+    val hasAudioCodec = normalizedAudioCodec.isNotBlank() && !normalizedAudioCodec.equals("none", ignoreCase = true)
+    val audioOnlyByContainer = normalizedExt in PARSED_AUDIO_ONLY_EXTENSIONS
+    val audioOnlyHint = normalizedNote.contains("audio only") ||
+        normalizedResolution == "audio only" ||
+        explicitVideoNone ||
+        audioOnlyByContainer
+    val visualHint = parseParsedFormatHeight(resolution) != null ||
+        normalizedResolution.endsWith("w") ||
+        normalizedResolution.contains("x")
+    val videoOnlyHint = normalizedNote.contains("video only") ||
+        (explicitAudioNone && visualHint)
+
+    val resolvedVideoCodec = when {
+        hasVideoCodec -> normalizedVideoCodec
+        audioOnlyHint -> "none"
+        visualHint || videoOnlyHint -> "unknown"
+        else -> "none"
+    }
+    val resolvedAudioCodec = when {
+        hasAudioCodec -> normalizedAudioCodec
+        videoOnlyHint -> "none"
+        audioOnlyHint -> "unknown"
+        else -> "none"
+    }
+
+    return ParsedFormatCodecs(
+        videoCodec = resolvedVideoCodec,
+        audioCodec = resolvedAudioCodec,
+    )
+}
+
+internal fun shouldIgnoreParsedFormat(
+    formatId: String?,
+    extension: String,
+    note: String?,
+    resolvedVideoCodec: String,
+    resolvedAudioCodec: String,
+): Boolean {
+    val normalizedFormatId = formatId?.trim()?.lowercase().orEmpty()
+    val normalizedNote = note?.trim()?.lowercase().orEmpty()
+    val normalizedExtension = extension.trim().lowercase()
+    if (normalizedFormatId.startsWith("sb")) return true
+    if (normalizedNote.contains("storyboard")) return true
+    if (normalizedExtension == "mhtml" || normalizedExtension == "mht") return true
+    return resolvedVideoCodec == "none" &&
+        resolvedAudioCodec == "none" &&
+        normalizedExtension !in PARSED_AUDIO_ONLY_EXTENSIONS
+}
+
+private fun parseParsedFormatHeight(resolution: String?): Int? {
+    val trimmed = resolution ?: return null
+    return trimmed.substringBefore("p", trimmed).toIntOrNull()
+}
+
+private val PARSED_AUDIO_ONLY_EXTENSIONS = setOf(
+    "aac",
+    "amr",
+    "flac",
+    "m4a",
+    "mka",
+    "mp3",
+    "oga",
+    "ogg",
+    "opus",
+    "wav",
+    "weba",
+)
+
+internal fun parseSubtitles(subtitlesObj: JsonObject?, isAutoGenerated: Boolean): List<SubtitleTrack> {
+    if (subtitlesObj == null) return emptyList()
+    val tracks = mutableListOf<SubtitleTrack>()
+    for ((langCode, value) in subtitlesObj) {
+        val formatsArray = value as? JsonArray ?: continue
+        val firstFormat = formatsArray.firstOrNull() as? JsonObject
+        val rawName = firstFormat?.get("name")?.jsonPrimitive?.contentOrNull
+        val ext = firstFormat?.get("ext")?.jsonPrimitive?.contentOrNull
+        val url = firstFormat?.get("url")?.jsonPrimitive?.contentOrNull
+        val resolvedName = rawName?.takeIf { it.isNotBlank() } ?: formatLanguageDisplayName(langCode)
+        tracks.add(
+            SubtitleTrack(
+                code = langCode,
+                name = resolvedName,
+                extension = ext,
+                url = url,
+                isAutoGenerated = isAutoGenerated,
+            ),
+        )
+    }
+    val filtered = if (isAutoGenerated) {
+        val origTracks = tracks.filter { it.isOriginal }
+        if (origTracks.isNotEmpty()) {
+            origTracks
+        } else {
+            // Keep native/primary base language captions and avoid auto-translated duplicates
+            tracks.filter { !it.code.contains("-") || it.code.endsWith("-orig") }
+        }
+    } else {
+        tracks
+    }
+    return filtered.sortedWith(compareBy({ it.isAutoGenerated }, { it.displayName.lowercase() }))
+}
+
+internal fun ensureYoutubeSkipTranslatedSubs(extractorArgs: String?): String {
+    val trimmed = extractorArgs?.trim().orEmpty()
+    if (trimmed.isBlank()) {
+        return "youtube:skip=translated_subs"
+    }
+    if (!trimmed.contains("youtube:")) {
+        return "$trimmed;youtube:skip=translated_subs"
+    }
+    if (trimmed.contains("skip=translated_subs")) {
+        return trimmed
+    }
+    return trimmed.replace("youtube:", "youtube:skip=translated_subs;")
+}
+
+internal fun formatLanguageDisplayName(code: String): String {
+    val cleanCode = code.substringBefore("-orig").trim()
+    val locale: Locale? = runCatching { Locale.forLanguageTag(cleanCode) }.getOrNull()
+        ?: runCatching { Locale.forLanguageTag(cleanCode.substringBefore("-")) }.getOrNull()
+        ?: runCatching { Locale(cleanCode.substringBefore("-")) }.getOrNull()
+    val defaultName = locale?.getDisplayName(Locale.getDefault())
+    val englishName = locale?.getDisplayName(Locale.ENGLISH)
+    val name = defaultName?.takeIf { it.isNotBlank() && !it.equals(cleanCode, ignoreCase = true) }
+        ?: englishName?.takeIf { it.isNotBlank() && !it.equals(cleanCode, ignoreCase = true) }
+    val isOrig = code.contains("-orig") || code.endsWith("orig")
+    return when {
+        name != null && isOrig -> "$name (Original)"
+        name != null -> name
+        isOrig -> "$cleanCode (Original)"
+        else -> code
+    }
+}
+
+
+
