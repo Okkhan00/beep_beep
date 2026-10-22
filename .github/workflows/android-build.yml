@@ -125,6 +125,7 @@ jobs:
             app/build/test-results/
             app/build/reports/lint-results-*.html
             app/build/reports/lint-results-*.txt
+            app/build/reports/lint-results-*.xml
           if-no-files-found: warn
           retention-days: 14
 
@@ -145,6 +146,14 @@ jobs:
           print(f"::notice title=Unit tests::tests={t} failures={f} errors={e} skipped={sk}")
           PY
           echo "::notice title=Lint::outcome=${{ steps.lint.outcome }}"
+          python3 - <<'PY'
+          import glob, collections, xml.etree.ElementTree as ET
+          c=collections.Counter()
+          for x in glob.glob("app/build/reports/lint-results-*.xml"):
+              for i in ET.parse(x).getroot().iter("issue"):
+                  c[(i.get("severity"), i.get("id"))]+=1
+          print("::notice title=Lint issues::" + "; ".join(f"{s}:{k}={n}" for (s,k),n in sorted(c.items()) if s in ("Error","Fatal")))
+          PY
           for f in app/build/reports/lint-results-*.txt; do [ -f "$f" ] && echo "::notice title=Lint summary::$(tail -n 5 "$f" | tr '\n' ' ')"; done || true
 
       - name: Fail if unit tests failed
