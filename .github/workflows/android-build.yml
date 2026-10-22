@@ -91,6 +91,11 @@ jobs:
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n1)
           echo "### Declared permissions" >> "$GITHUB_STEP_SUMMARY"
           "$BT/aapt2" dump permissions "$APK" | tee -a "$GITHUB_STEP_SUMMARY"
+          LIBS=$(unzip -l "$APK" | grep -E "lib/.*(ffmpeg|python|qjs|c\+\+)" | awk '{print $1" "$4}' | tr '\n' ';')
+          ABIS=$(unzip -l "$APK" | grep -oE "lib/[^/]+/" | sort -u | tr '\n' ' ')
+          PERMS=$("$BT/aapt2" dump permissions "$APK" | grep -E "^uses-permission" | tr '\n' ';')
+          echo "::notice title=APK inspection::ABIS=$ABIS | LIBS=$LIBS | PERMS=$PERMS"
+          echo "::notice title=APK size::$(du -h "$APK" | cut -f1) $(sha256sum "$APK" | cut -d' ' -f1)"
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
@@ -131,6 +136,16 @@ jobs:
             echo "- Unit tests: ${{ steps.unit.outcome }}"
             echo "- Lint: ${{ steps.lint.outcome }} (advisory)"
           } >> "$GITHUB_STEP_SUMMARY"
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          t=f=e=sk=0
+          for x in glob.glob("app/build/test-results/**/*.xml", recursive=True):
+              r=ET.parse(x).getroot()
+              t+=int(r.get("tests",0)); f+=int(r.get("failures",0)); e+=int(r.get("errors",0)); sk+=int(r.get("skipped",0))
+          print(f"::notice title=Unit tests::tests={t} failures={f} errors={e} skipped={sk}")
+          PY
+          echo "::notice title=Lint::outcome=${{ steps.lint.outcome }}"
+          for f in app/build/reports/lint-results-*.txt; do [ -f "$f" ] && echo "::notice title=Lint summary::$(tail -n 5 "$f" | tr '\n' ' ')"; done || true
 
       - name: Fail if unit tests failed
         if: steps.unit.outcome == 'failure'
