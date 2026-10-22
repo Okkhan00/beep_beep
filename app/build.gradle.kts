@@ -1,4 +1,5 @@
 import org.gradle.api.tasks.Copy
+import java.security.MessageDigest
 import java.util.Properties
 import java.io.File
 import java.net.URL
@@ -210,7 +211,7 @@ android {
 val pinnedYtDlpVersion = "2026.10.21"
 
 fun sha256Hex(file: File): String {
-    val digest = java.security.MessageDigest.getInstance("SHA-256")
+    val digest = MessageDigest.getInstance("SHA-256")
     file.inputStream().use { input ->
         val buffer = ByteArray(64 * 1024)
         while (true) {
@@ -219,7 +220,7 @@ fun sha256Hex(file: File): String {
             digest.update(buffer, 0, read)
         }
     }
-    return digest.digest().joinToString("") { "%02x".format(it) }
+    return digest.digest().joinToString("") { b -> "%02x".format(b) }
 }
 
 fun fetchText(url: String): String = URL(url).openStream().use { it.readBytes().toString(Charsets.UTF_8) }
