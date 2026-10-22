@@ -17,7 +17,6 @@ import kotlinx.coroutines.flow.Flow
 interface DownloaderRepository {
     suspend fun analyzeUrl(
         url: String,
-        cookiesPath: String? = null,
         userAgent: String? = null,
         preferredExtractorArgs: String? = null,
     ): Result<VideoInfo>

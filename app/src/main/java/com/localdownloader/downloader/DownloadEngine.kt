@@ -65,13 +65,6 @@ class DownloadEngine @Inject constructor(
             args += listOf("--add-header", "User-Agent:${options.userAgentHeader}")
         }
 
-        // Apply cookies if a valid cookies file path is available.
-        // These are used for cookie-backed site sessions, including tougher YouTube cases.
-        val cookiesPath = options.youtubeCookiesPath
-        if (!cookiesPath.isNullOrBlank() && File(cookiesPath).exists()) {
-            args += listOf("--cookies", cookiesPath)
-        }
-
         if (options.isPlaylistEnabled) {
             args += "--yes-playlist"
         } else {
@@ -190,11 +183,6 @@ class DownloadEngine @Inject constructor(
             args += listOf("--add-header", "User-Agent:${options.userAgentHeader}")
         }
 
-        val cookiesPath = options.youtubeCookiesPath
-        if (!cookiesPath.isNullOrBlank() && File(cookiesPath).exists()) {
-            args += listOf("--cookies", cookiesPath)
-        }
-
         if (options.isPlaylistEnabled) {
             args += "--yes-playlist"
         } else {
@@ -231,19 +219,7 @@ class DownloadEngine @Inject constructor(
     }
 
     private fun resolveSubtitleExtractorArgs(options: DownloadOptions): String? {
-        val configuredArgs = options.extractorArgs?.trim().orEmpty()
-        if (isYoutubeUrl(options.url) &&
-            (options.youtubePoToken.orEmpty().isNotBlank() || options.youtubeDataSyncId.orEmpty().isNotBlank()) &&
-            !configuredArgs.contains("po_token=") &&
-            !configuredArgs.contains("data_sync_id=")
-        ) {
-            return YoutubeRequestPlanner.preferredAuthenticatedExtractorArgs(
-                poToken = options.youtubePoToken,
-                preferredHint = options.youtubePoTokenClientHint,
-                dataSyncId = options.youtubeDataSyncId,
-            )
-        }
-        return configuredArgs.ifBlank { null }
+        return options.extractorArgs?.trim().orEmpty().ifBlank { null }
     }
 
     private fun shouldRequestMetadataEmbedding(options: DownloadOptions): Boolean {

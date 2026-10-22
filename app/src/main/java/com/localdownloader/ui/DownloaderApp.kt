@@ -64,8 +64,6 @@ import com.localdownloader.domain.models.DownloadTask
 import com.localdownloader.domain.models.ContrastMode
 import com.localdownloader.domain.models.ThemeMode
 import com.localdownloader.media.isLikelyPlayableMediaPath
-import com.localdownloader.ui.screens.CookieCaptureScreen
-import com.localdownloader.ui.screens.CookiesScreen
 import com.localdownloader.ui.screens.BrowserScreen
 import com.localdownloader.ui.screens.CompressScreen
 import com.localdownloader.ui.screens.ConvertScreen
@@ -76,8 +74,6 @@ import com.localdownloader.ui.screens.ExternalPreviewScreen
 import com.localdownloader.ui.screens.HelpScreen
 import com.localdownloader.ui.screens.MoreScreen
 import com.localdownloader.ui.screens.VaultScreen
-import com.localdownloader.ui.screens.YoutubeAuthScreen
-import com.localdownloader.ui.screens.YoutubeAuthLoginScreen
 import com.localdownloader.ui.screens.settings.AboutSettingsScreen
 import com.localdownloader.ui.screens.settings.AccessSettingsScreen
 import com.localdownloader.ui.screens.settings.AppearanceSettingsScreen
@@ -147,8 +143,6 @@ fun DownloaderApp(
     val fileUtils = mediaToolsViewModel.fileUtils
     var cacheSize by remember { mutableLongStateOf(0L) }
     var activeExternalOpenRequest by remember { mutableStateOf<ExternalOpenRequest?>(externalOpenRequest) }
-    var pendingCookieCaptureUrl by remember { mutableStateOf<String?>(null) }
-    var pendingCookieCaptureProfileId by remember { mutableStateOf<String?>(null) }
     var pendingFolderBrowseTarget by remember { mutableStateOf<FolderBrowseTarget?>(null) }
     var showVideoPlayerSourceSheet by remember { mutableStateOf(false) }
     var showVideoGestureGuideSheet by remember { mutableStateOf(false) }
@@ -646,13 +640,10 @@ fun DownloaderApp(
                     onOpenHistory = { navController.navigate(Routes.History) },
                     onOpenCompress = { navController.navigate(Routes.Compress) },
                     onOpenConvert = { navController.navigate(Routes.Convert) },
-                    onOpenYoutubeAccess = { navController.navigate(Routes.YoutubeAuth) },
-                    onOpenCookies = { navController.navigate(Routes.Cookies) },
                     onOpenSettings = { navController.navigate(Routes.Settings) },
                     onOpenDownloadSettings = { navController.navigate(Routes.SettingsDownloads) },
                     onOpenStorageSettings = { navController.navigate(Routes.SettingsStorage) },
                     onOpenHelp = { navController.navigate(Routes.Help) },
-                    onDismissDownloadSetupNotice = formatViewModel::dismissDownloadSetupNotice,
                     onDismissMessage = formatViewModel::dismissMessage,
                     onDismissMeteredNetworkDialog = formatViewModel::dismissMeteredNetworkDialog,
                     onQueueWhenWifiAvailable = formatViewModel::queueDownloadWhenWifiAvailable,
@@ -715,8 +706,6 @@ fun DownloaderApp(
                     onCancelTasks = downloadViewModel::cancelTasks,
                     onMoveQueuedEarlier = downloadViewModel::moveQueuedTaskEarlier,
                     onMoveQueuedLater = downloadViewModel::moveQueuedTaskLater,
-                    onOpenCookies = { navController.navigate(Routes.Cookies) },
-                    onOpenYoutubeAccess = { navController.navigate(Routes.YoutubeAuth) },
                     onToggleDebug = downloadViewModel::toggleDebug,
                     onBack = { navController.popBackStack() },
                     onOpenBatterySettings = { navController.navigate(Routes.SettingsBattery) },
@@ -730,80 +719,11 @@ fun DownloaderApp(
                     onOpenConvert = { navController.navigate(Routes.Convert) },
                     onOpenVideo = { showVideoPlayerSourceSheet = true },
                     onOpenMusic = { navController.navigate(Routes.Music) },
-                    onOpenYoutubeAccess = { navController.navigate(Routes.YoutubeAuth) },
-                    onOpenCookies = { navController.navigate(Routes.Cookies) },
                     onOpenUpdates = { navController.navigate(Routes.Updates) },
                     onOpenSettings = { navController.navigate(Routes.Settings) },
                     onOpenHelp = { navController.navigate(Routes.Help) },
                     onOpenVault = { navController.navigate(Routes.Vault) },
                 )
-            }
-            composable(Routes.YoutubeAuth) {
-                YoutubeAuthScreen(
-                    uiState = formatState,
-                    onBack = { navController.popBackStack() },
-                    onGenerateAccess = { navController.navigate(Routes.YoutubeAuthLogin) },
-                    onEnabledChanged = formatViewModel::setYoutubeAuthEnabled,
-                    onClear = formatViewModel::clearYoutubeAuthConfig,
-                    onDismissMessage = formatViewModel::dismissMessage,
-                )
-            }
-            composable(Routes.YoutubeAuthLogin) {
-                YoutubeAuthLoginScreen(
-                    onBack = { navController.popBackStack() },
-                    onConfirm = { cookieText, authConfig ->
-                        formatViewModel.saveYoutubeAuthSession(cookieText, authConfig)
-                        navController.popBackStack(Routes.YoutubeAuth, inclusive = false)
-                    },
-                )
-            }
-            composable(Routes.Cookies) {
-                CookiesScreen(
-                    uiState = formatState,
-                    onBack = { navController.popBackStack() },
-                    onCookiesEnabledChanged = formatViewModel::onCookiesEnabledChanged,
-                    onCookieUserAgentEnabledChanged = formatViewModel::onCookieUserAgentEnabledChanged,
-                    onSaveCookie = { profileId, url, cookiesText ->
-                        formatViewModel.saveCookieProfile(profileId, url, cookiesText)
-                    },
-                    onDeleteCookie = formatViewModel::deleteCookieProfile,
-                    onDeleteAllCookies = formatViewModel::clearAllCookieProfiles,
-                    onImportCookieText = formatViewModel::importCookieText,
-                    onOpenCookieCapture = { url, profileId ->
-                        pendingCookieCaptureUrl = url
-                        pendingCookieCaptureProfileId = profileId
-                        navController.navigate(Routes.CookieCapture)
-                    },
-                    onCookieExportResult = formatViewModel::onCookieExportFinished,
-                    onDismissMessage = formatViewModel::dismissMessage,
-                )
-            }
-            composable(Routes.CookieCapture) {
-                val captureUrl = pendingCookieCaptureUrl
-                if (captureUrl == null) {
-                    LaunchedEffect(Unit) {
-                        navController.popBackStack()
-                    }
-                } else {
-                    CookieCaptureScreen(
-                        url = captureUrl,
-                        onBack = {
-                            pendingCookieCaptureUrl = null
-                            pendingCookieCaptureProfileId = null
-                            navController.popBackStack()
-                        },
-                        onConfirm = { cookieText ->
-                            formatViewModel.replaceCookieFromBrowser(
-                                profileId = pendingCookieCaptureProfileId,
-                                url = captureUrl,
-                                cookieText = cookieText,
-                            )
-                            pendingCookieCaptureUrl = null
-                            pendingCookieCaptureProfileId = null
-                            navController.popBackStack()
-                        },
-                    )
-                }
             }
             composable(Routes.History) {
                 DownloadHistoryScreen(
@@ -976,10 +896,6 @@ fun DownloaderApp(
                 AccessSettingsScreen(
                     uiState = formatState,
                     onAllowMeteredDownloadsChanged = formatViewModel::onAllowMeteredDownloadsChanged,
-                    onCookiesEnabledChanged = formatViewModel::onCookiesEnabledChanged,
-                    onCookieUserAgentEnabledChanged = formatViewModel::onCookieUserAgentEnabledChanged,
-                    onOpenCookies = { navController.navigate(Routes.Cookies) },
-                    onOpenYoutubeAccess = { navController.navigate(Routes.YoutubeAuth) },
                     onBack = { navController.popBackStack() },
                 )
             }
@@ -1023,21 +939,14 @@ fun DownloaderApp(
                     uiState = updatesState,
                     onBack = { navController.popBackStack() },
                     onRefreshAll = updatesViewModel::refreshAll,
-                    onRefreshApp = updatesViewModel::refreshApp,
                     onRefreshYtDlp = updatesViewModel::refreshYtDlp,
-                    onRefreshFfmpeg = updatesViewModel::refreshFfmpeg,
-                    onInstallAppUpdate = updatesViewModel::installAppUpdate,
                     onInstallYtDlpUpdate = updatesViewModel::installYtDlpUpdate,
-                    onInstallFfmpegUpdate = updatesViewModel::installFfmpegUpdate,
                     onYtDlpChannelChanged = updatesViewModel::setYtDlpChannel,
-                    onFfmpegChannelChanged = updatesViewModel::setFfmpegChannel,
                     onAutoUpdateYtDlpChanged = updatesViewModel::setAutoUpdateYtDlp,
-                    onIncludePrereleaseAppReleasesChanged = updatesViewModel::setIncludePrereleaseAppReleases,
                     onCheckUpdatesOnStartupChanged = updatesViewModel::setCheckUpdatesOnStartup,
                     onOpenChangelog = { section ->
                         navController.navigate(Routes.updateChangelog(section))
                     },
-                    onConsumePendingAppInstall = updatesViewModel::consumePendingAppInstall,
                     onDismissMessage = updatesViewModel::dismissMessage,
                 )
             }
@@ -1047,9 +956,7 @@ fun DownloaderApp(
             ) { backStackEntry ->
                 val sectionKey = backStackEntry.arguments?.getString("section")
                 val sectionState = when (sectionKey) {
-                    UpdateChangelogSections.APP -> updatesState.app
                     UpdateChangelogSections.YT_DLP -> updatesState.ytDlp
-                    UpdateChangelogSections.FFMPEG -> updatesState.ffmpeg
                     else -> null
                 }
                 UpdateChangelogScreen(
@@ -1058,34 +965,14 @@ fun DownloaderApp(
                     latestVersion = sectionState?.latestVersion,
                     summary = sectionState?.summary ?: "No update details are available.",
                     releaseNotes = sectionState?.releaseNotes,
-                    latestDocumentHeading = if (sectionKey == UpdateChangelogSections.APP) {
-                        "Latest app release notes"
-                    } else {
-                        "Recent release notes"
-                    },
-                    bundledDocumentHeading = if (sectionKey == UpdateChangelogSections.APP) {
-                        "Full app changelog"
-                    } else {
-                        null
-                    },
-                    overviewText = if (sectionKey == UpdateChangelogSections.APP) {
-                        "Read the newest app release notes first, then browse the bundled full changelog below."
-                    } else {
-                        "Read the latest release notes in a cleaner documentation-style view."
-                    },
-                    bundledReleaseNotesAssetName = if (sectionKey == UpdateChangelogSections.APP) {
-                        "changelog/CHANGELOG.md"
-                    } else {
-                        null
-                    },
+                    latestDocumentHeading = "Recent release notes",
+                    overviewText = "Read the latest release notes in a cleaner documentation-style view.",
                     onBack = { navController.popBackStack() },
                 )
             }
             composable(Routes.Help) {
                 HelpScreen(
                     onBack = { navController.popBackStack() },
-                    onOpenCookies = { navController.navigate(Routes.Cookies) },
-                    onOpenYoutubeAccess = { navController.navigate(Routes.YoutubeAuth) },
                 )
             }
             composable(Routes.Music) {
@@ -1247,10 +1134,6 @@ object Routes {
     const val Downloads = AppLaunchRouter.ROUTE_DOWNLOADS
     const val Music = AppLaunchRouter.ROUTE_MUSIC
     const val More = AppLaunchRouter.ROUTE_MORE
-    const val YoutubeAuth = "youtube_auth"
-    const val YoutubeAuthLogin = "youtube_auth_login"
-    const val Cookies = "cookies"
-    const val CookieCapture = "cookie_capture"
     const val DownloadQueue = AppLaunchRouter.ROUTE_DOWNLOAD_QUEUE
     const val History = "history"
     const val Convert = "convert"

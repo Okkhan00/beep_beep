@@ -39,9 +39,7 @@ import com.localdownloader.R
 import com.localdownloader.ui.components.PreferencePageScaffold
 
 object UpdateChangelogSections {
-    const val APP = "app"
     const val YT_DLP = "ytdlp"
-    const val FFMPEG = "ffmpeg"
 }
 
 @Composable

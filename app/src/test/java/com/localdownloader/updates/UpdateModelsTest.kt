@@ -8,30 +8,18 @@ import kotlin.test.assertTrue
 class UpdateModelsTest {
 
     @Test
-    fun startupUpdatePrompt_hasAnyUpdate_returnsTrueWhenAnyComponentHasUpdate() {
-        val nonePrompt = StartupUpdatePrompt(
-            appUpdate = ComponentUpdateCheck(
-                currentVersion = "1.0.0",
-                latestVersion = "1.0.0",
+    fun startupUpdatePrompt_hasAnyUpdate_reflectsYtDlpUpdate() {
+        assertFalse(StartupUpdatePrompt().hasAnyUpdate)
+        val none = StartupUpdatePrompt(
+            ytDlpUpdate = ComponentUpdateCheck(
+                currentVersion = "2026.01.01",
+                latestVersion = "2026.01.01",
                 updateAvailable = false,
                 summary = "Up to date",
             ),
-            ytDlpUpdate = null,
-            ffmpegUpdate = null,
         )
-        assertFalse(nonePrompt.hasAnyUpdate)
-
-        val appPrompt = StartupUpdatePrompt(
-            appUpdate = ComponentUpdateCheck(
-                currentVersion = "1.0.0",
-                latestVersion = "1.1.0",
-                updateAvailable = true,
-                summary = "Update available",
-            ),
-        )
-        assertTrue(appPrompt.hasAnyUpdate)
-
-        val ytdlpPrompt = StartupUpdatePrompt(
+        assertFalse(none.hasAnyUpdate)
+        val available = StartupUpdatePrompt(
             ytDlpUpdate = ComponentUpdateCheck(
                 currentVersion = "2026.01.01",
                 latestVersion = "2026.02.01",
@@ -39,17 +27,7 @@ class UpdateModelsTest {
                 summary = "Update available",
             ),
         )
-        assertTrue(ytdlpPrompt.hasAnyUpdate)
-
-        val ffmpegPrompt = StartupUpdatePrompt(
-            ffmpegUpdate = ComponentUpdateCheck(
-                currentVersion = "6.0",
-                latestVersion = "7.0",
-                updateAvailable = true,
-                summary = "Update available",
-            ),
-        )
-        assertTrue(ffmpegPrompt.hasAnyUpdate)
+        assertTrue(available.hasAnyUpdate)
     }
 
     @Test

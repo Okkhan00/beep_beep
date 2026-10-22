@@ -278,10 +278,6 @@
     <string name="queue_subtitle_empty">இன்னும் பதிவிறக்கங்கள் இல்லை. பணிகள் தொடங்கும் போது அவற்றின் நிலைகள் இங்கே தோன்றும்.</string>
     <string name="queue_subtitle_all">அனைத்து நிலைகளிலும் கண்காணிக்கப்படும் %1$d பதிவிறக்கங்கள்</string>
     <string name="queue_subtitle_filtered">இப்போது %2$s இல் %1$d உருப்படிகள்</string>
-    <string name="queue_recovery_stuck_youtube">இந்த YouTube உருப்படி %1$s க்கு புதுப்பிக்கப்படவில்லை. இயக்க அணுகல் சோதனைகள் பதிவிறக்கத்தை நிறுத்தும் போது குக்கீக்கள் அல்லது PO உருவாக்கம் உதவும்.</string>
-    <string name="queue_recovery_stuck">இந்த உருப்படி %1$s க்கு புதுப்பிக்கப்படவில்லை. தளம் உள்நுழைந்த அல்லது பகுதி பொருந்தும் அமர்வைத் தேவைப்படுத்தினால் குக்கீக்கள் உதவும்.</string>
-    <string name="queue_recovery_youtube">அமைப்புகள் அல்லது மேலும் பக்கத்திலிருந்து குக்கீக்களைச் சேர்த்து PO உருவாக்கத்தைப் புதுப்பித்த பின் YouTube தோல்விகள் பல நேரம் சரியாகும்.</string>
-    <string name="queue_recovery_default">இந்த பதிவிறக்கம் redirects, rate limits, அல்லது பாதுகாக்கப்பட்ட அணுகலுக்குப் பின் தோல்வியுற்றால் முதலில் குக்கீக்களை முயற்சி செய். அதற்குப் பிறகும் தோல்வியுற்றால் பதிவுகளை ஏற்றுமதி செய்து பிரச்சினையை அறிவி.</string>
     <string name="history_title">வரலாறு</string>
     <string name="history_task_summary">பணி சுருக்கம்</string>
     <string name="history_empty_title">பொருந்தும் வரலாறு இன்னும் இல்லை</string>

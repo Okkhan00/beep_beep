@@ -35,7 +35,6 @@ class FormatExtractor @Inject constructor(
 ) {
     suspend fun analyze(
         url: String,
-        cookiesPath: String? = null,
         userAgent: String? = null,
         preferredExtractorArgs: String? = null,
     ): Result<VideoInfo> {
@@ -44,10 +43,8 @@ class FormatExtractor @Inject constructor(
             val analyzeMode = resolveAnalyzeRequestMode(url)
             val isYoutube = isYoutubeUrl(url)
 
-            val hasCookies = !cookiesPath.isNullOrBlank() && File(cookiesPath).exists()
             val extractorCandidates = if (isYoutube) {
                 YoutubeRequestPlanner.analyzeCandidates(
-                    cookiesAvailable = hasCookies,
                     preferredExtractorArgs = preferredExtractorArgs,
                 )
             } else {
@@ -74,7 +71,6 @@ class FormatExtractor @Inject constructor(
                     analyzeWithExtractor(
                         url = url,
                         extractorArgs = extractorArgs,
-                        cookiesPath = cookiesPath,
                         userAgent = userAgent,
                         requestMode = analyzeMode,
                     )
@@ -246,7 +242,6 @@ class FormatExtractor @Inject constructor(
     private suspend fun analyzeWithExtractor(
         url: String,
         extractorArgs: String?,
-        cookiesPath: String?,
         userAgent: String?,
         requestMode: AnalyzeRequestMode,
     ): AnalyzeAttempt {
@@ -261,7 +256,6 @@ class FormatExtractor @Inject constructor(
         val primaryAttempt = executeAnalyzeAttempt(
             url = url,
             extractorArgs = extractorArgs,
-            cookiesPath = cookiesPath,
             userAgent = userAgent,
             capturedInfoJsonFile = capturedInfoJsonFile,
             loadInfoJsonPath = cachedInfoJsonPath,
@@ -281,7 +275,6 @@ class FormatExtractor @Inject constructor(
             val lineJsonAttempt = executeAnalyzeAttempt(
                 url = url,
                 extractorArgs = extractorArgs,
-                cookiesPath = cookiesPath,
                 userAgent = userAgent,
                 capturedInfoJsonFile = capturedInfoJsonFile,
                 loadInfoJsonPath = cachedInfoJsonPath,
@@ -305,7 +298,6 @@ class FormatExtractor @Inject constructor(
             val extendedPrimaryAttempt = executeAnalyzeAttempt(
                 url = url,
                 extractorArgs = extractorArgs,
-                cookiesPath = cookiesPath,
                 userAgent = userAgent,
                 capturedInfoJsonFile = capturedInfoJsonFile,
                 loadInfoJsonPath = cachedInfoJsonPath,
@@ -320,7 +312,6 @@ class FormatExtractor @Inject constructor(
             val extendedLineJsonAttempt = executeAnalyzeAttempt(
                 url = url,
                 extractorArgs = extractorArgs,
-                cookiesPath = cookiesPath,
                 userAgent = userAgent,
                 capturedInfoJsonFile = capturedInfoJsonFile,
                 loadInfoJsonPath = cachedInfoJsonPath,
@@ -346,7 +337,6 @@ class FormatExtractor @Inject constructor(
     private suspend fun executeAnalyzeAttempt(
         url: String,
         extractorArgs: String?,
-        cookiesPath: String?,
         userAgent: String?,
         capturedInfoJsonFile: File?,
         loadInfoJsonPath: String?,
@@ -357,7 +347,6 @@ class FormatExtractor @Inject constructor(
         val args = buildAnalyzeArgs(
             url = url,
             extractorArgs = extractorArgs,
-            cookiesPath = cookiesPath,
             userAgent = userAgent,
             capturedInfoJsonFile = capturedInfoJsonFile,
             loadInfoJsonPath = loadInfoJsonPath,
@@ -448,7 +437,6 @@ class FormatExtractor @Inject constructor(
     private fun buildAnalyzeArgs(
         url: String,
         extractorArgs: String?,
-        cookiesPath: String?,
         userAgent: String?,
         capturedInfoJsonFile: File?,
         loadInfoJsonPath: String?,
@@ -460,7 +448,6 @@ class FormatExtractor @Inject constructor(
         return buildAnalyzeArgsForRequest(
             url = url,
             extractorArgs = extractorArgs,
-            cookiesPath = cookiesPath,
             userAgent = userAgent,
             capturedInfoJsonPath = capturedInfoJsonFile?.absolutePath,
             loadInfoJsonPath = loadInfoJsonPath,
@@ -953,7 +940,6 @@ internal fun isTransientAnalyzeFailure(message: String): Boolean {
 internal fun buildAnalyzeArgsForRequest(
     url: String,
     extractorArgs: String?,
-    cookiesPath: String?,
     userAgent: String?,
     capturedInfoJsonPath: String?,
     loadInfoJsonPath: String? = null,
@@ -997,10 +983,6 @@ internal fun buildAnalyzeArgsForRequest(
                 add("--flat-playlist")
                 add("--lazy-playlist")
             }
-        }
-        if (!cookiesPath.isNullOrBlank() && File(cookiesPath).exists()) {
-            add("--cookies")
-            add(cookiesPath)
         }
         if (!userAgent.isNullOrBlank()) {
             add("--add-header")

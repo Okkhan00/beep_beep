@@ -4,7 +4,6 @@ import com.localdownloader.domain.models.AccentPreset
 import com.localdownloader.domain.models.AnalyzedLinkRecord
 import com.localdownloader.domain.models.AppSettings
 import com.localdownloader.domain.models.ContrastMode
-import com.localdownloader.domain.models.CookieProfile
 import com.localdownloader.domain.models.FormatChoice
 import com.localdownloader.domain.models.OutputTransform
 import com.localdownloader.domain.models.PlaylistEntry
@@ -13,15 +12,12 @@ import com.localdownloader.domain.models.StreamType
 import com.localdownloader.domain.models.ThemeMode
 import com.localdownloader.domain.models.VideoInfo
 import com.localdownloader.domain.models.VideoQuality
-import com.localdownloader.domain.models.YoutubeAuthConfig
 import com.localdownloader.domain.models.choicesForStreamType
 import com.localdownloader.domain.models.hasChoicesForStreamType
 
 enum class FormatMessageScope {
     BROWSER,
     SETTINGS,
-    COOKIES,
-    YOUTUBE_ACCESS,
 }
 
 data class PlaylistItemUiState(
@@ -116,10 +112,6 @@ data class FormatUiState(
     val otherSubfolderName: String = "Files",
     val maxConcurrentDownloads: Int = 2,
     val allowMeteredDownloads: Boolean = false,
-    val cookiesEnabled: Boolean = false,
-    val cookieUserAgentEnabled: Boolean = false,
-    val cookieProfiles: List<CookieProfile> = emptyList(),
-    val youtubeAuthConfig: YoutubeAuthConfig = YoutubeAuthConfig(),
     val playlistItems: List<PlaylistItemUiState> = emptyList(),
     val readyAnalyzedItems: List<AnalyzedLinkRecord> = emptyList(),
     val restoringReadyItemUrl: String? = null,
@@ -142,12 +134,6 @@ data class FormatUiState(
     val lastQueuedOutputTransform: OutputTransform? = null,
     val lastQueuedQuality: VideoQuality? = null,
 ) {
-    val shouldShowDownloadSetupNotice: Boolean
-        get() = hasLoadedSettings &&
-            !appSettings.hasSeenDownloadSetupNotice &&
-            cookieProfiles.isEmpty() &&
-            !youtubeAuthConfig.isConfigured()
-
     fun infoMessageFor(scope: FormatMessageScope): String? =
         infoMessage?.takeIf { messageScope == scope }
 

@@ -12,7 +12,7 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.localdownloader.data.DownloadTaskStore
-import com.localdownloader.data.DownloadOptionSecretsStore
+import com.localdownloader.data.DownloadOptionsCodec
 import com.localdownloader.data.SettingsStore
 import com.localdownloader.domain.models.AppSettings
 import com.localdownloader.domain.models.DownloadOptions
@@ -42,7 +42,7 @@ class DownloadWorker @AssistedInject constructor(
     @Assisted params: WorkerParameters,
     private val downloadEngine: DownloadEngine,
     private val downloadTaskStore: DownloadTaskStore,
-    private val downloadOptionSecretsStore: DownloadOptionSecretsStore,
+    private val downloadOptionsCodec: DownloadOptionsCodec,
     private val settingsStore: SettingsStore,
     private val repository: DownloaderRepository,
     private val ffmpegExecutor: FfmpegExecutor,
@@ -57,7 +57,7 @@ class DownloadWorker @AssistedInject constructor(
         downloadTaskStore.awaitInitialLoad()
         val persistedTask = downloadTaskStore.getTask(taskId)
         val storedOptions = downloadTaskStore.getCachedOptions(taskId)
-            ?.let { serialized -> downloadOptionSecretsStore.hydrate(taskId, serialized) }
+            ?.let { serialized -> downloadOptionsCodec.hydrate(serialized) }
         val legacyOptions = if (storedOptions == null) parseLegacyOptionsFromInputData() else null
         val options = storedOptions
             ?: legacyOptions
@@ -78,7 +78,7 @@ class DownloadWorker @AssistedInject constructor(
         logger.d(
             "DownloadWorker",
             "Loaded options taskId=$taskId playlist=${options.isPlaylistEnabled} extractAudio=${options.extractAudio} " +
-                "format=$formatId authEnabled=${options.youtubeAuthEnabled}",
+                "format=$formatId",
         )
         val shouldContinuePlaylistQueue = options.isPlaylistEnabled && options.playlistItemIndex != null
 
@@ -89,7 +89,7 @@ class DownloadWorker @AssistedInject constructor(
             title = runningTitle,
         )
         if (migratedLegacyOptions) {
-            downloadTaskStore.cacheOptions(taskId, downloadOptionSecretsStore.persist(taskId, options))
+            downloadTaskStore.cacheOptions(taskId, downloadOptionsCodec.persist(options))
         }
         appendDebugTrace(taskId, "Worker started")
         appendDebugTrace(
@@ -454,34 +454,6 @@ class DownloadWorker @AssistedInject constructor(
             }
         }
 
-        if (!result.isSuccess && shouldRetryWithYoutubeAuth(options, result.stderr)) {
-            val authAttempts = youtubeAuthenticatedSelectorAttempts(
-                requestedSelector = options.formatId,
-                poToken = options.youtubePoToken,
-                preferredHint = options.youtubePoTokenClientHint,
-                dataSyncId = options.youtubeDataSyncId,
-            )
-            val hasPoToken = !options.youtubePoToken.isNullOrBlank()
-            authAttempts.forEachIndexed { index, attempt ->
-                if (result.isSuccess) return@forEachIndexed
-                appendDebugTrace(
-                    taskId,
-                    if (hasPoToken) {
-                        "Retrying with YouTube compatibility mode ${index + 1}/${authAttempts.size}: ${attempt.label}"
-                    } else {
-                        "Retrying with cookie-backed YouTube mode ${index + 1}/${authAttempts.size}: ${attempt.label}"
-                    },
-                )
-                result = runDownloadAttempt(
-                    options.asFreshDownloadRetry().copy(
-                        formatId = attempt.selector,
-                        extractorArgs = attempt.extractorArgs,
-                        fallbackExtractorArgs = null,
-                    ),
-                )
-            }
-        }
-
         if (!result.isSuccess && shouldRetryWithYoutubeAdaptiveFallback(options, result.stderr)) {
             val adaptiveAttempts = youtubeAdaptiveRecoveryAttempts(options)
             adaptiveAttempts.forEachIndexed { index, attempt ->
@@ -501,35 +473,12 @@ class DownloadWorker @AssistedInject constructor(
         }
 
         if (!result.isSuccess && shouldRetryWithMp4Fallback(options, result.stderr)) {
-            if (hasUsableCookies(options) && isYoutubeUrl(options.url) && !options.downloadVideoOnly) {
-                val progressiveAttempts = youtubeProgressiveRecoveryAttempts(
-                    poToken = options.youtubePoToken,
-                    preferredHint = options.youtubePoTokenClientHint,
-                    dataSyncId = options.youtubeDataSyncId,
-                )
-                progressiveAttempts.forEachIndexed { index, attempt ->
-                    if (result.isSuccess) return@forEachIndexed
-                    appendDebugTrace(
-                        taskId,
-                        "Retrying with cookie-backed progressive fallback ${index + 1}/${progressiveAttempts.size}: ${attempt.label}",
-                    )
-                    result = runDownloadAttempt(
-                        options.asFreshDownloadRetry().copy(
-                            formatId = attempt.selector,
-                            extractorArgs = attempt.extractorArgs,
-                            fallbackExtractorArgs = null,
-                            mergeOutputFormat = "mp4",
-                        ),
-                    )
-                }
-            } else {
-                appendDebugTrace(taskId, "Retrying with mp4 fallback after format/access failure")
-                val fallbackOptions = options.asFreshDownloadRetry().copy(
-                    formatId = buildMp4FallbackSelector(downloadVideoOnly = options.downloadVideoOnly),
-                    mergeOutputFormat = if (options.downloadVideoOnly) null else "mp4",
-                )
-                result = runDownloadAttempt(fallbackOptions)
-            }
+            appendDebugTrace(taskId, "Retrying with mp4 fallback after format/access failure")
+            val fallbackOptions = options.asFreshDownloadRetry().copy(
+                formatId = buildMp4FallbackSelector(downloadVideoOnly = options.downloadVideoOnly),
+                mergeOutputFormat = if (options.downloadVideoOnly) null else "mp4",
+            )
+            result = runDownloadAttempt(fallbackOptions)
         }
 
         if (!result.isSuccess && shouldRetryWithYoutubeSafeMode(options, result.stderr)) {
@@ -903,34 +852,6 @@ class DownloadWorker @AssistedInject constructor(
         }
     }
 
-    private fun shouldRetryWithYoutubeAuth(options: DownloadOptions, stderr: String): Boolean {
-        if (options.extractAudio) return false
-        if (!isYoutubeUrl(options.url)) return false
-        if (!hasUsableCookies(options)) return false
-
-        return isYoutubeFormatAccessFailure(stderr)
-    }
-
-    private fun youtubeAuthenticatedSelectorAttempts(
-        requestedSelector: String,
-        poToken: String?,
-        preferredHint: String,
-        dataSyncId: String?,
-    ): List<SafeModeAttempt> {
-        return YoutubeRequestPlanner.authenticatedSameSelectorAttempts(
-            requestedSelector = requestedSelector,
-            poToken = poToken,
-            preferredHint = preferredHint,
-            dataSyncId = dataSyncId,
-        ).map { attempt ->
-            SafeModeAttempt(
-                label = attempt.label,
-                selector = attempt.selector,
-                extractorArgs = attempt.extractorArgs,
-            )
-        }
-    }
-
     private fun youtubeSameSelectorRecoveryAttempts(options: DownloadOptions): List<SafeModeAttempt> {
         val attempts = buildList {
             if (!options.loadInfoJsonPath.isNullOrBlank()) {
@@ -944,7 +865,6 @@ class DownloadWorker @AssistedInject constructor(
             }
             YoutubeRequestPlanner.recoveryCandidates(
                 selectedExtractorArgs = options.extractorArgs,
-                cookiesAvailable = hasUsableCookies(options),
             ).forEach { extractorArgs ->
                 add(
                     SafeModeAttempt(
@@ -977,7 +897,6 @@ class DownloadWorker @AssistedInject constructor(
             }
             YoutubeRequestPlanner.recoveryCandidates(
                 selectedExtractorArgs = options.extractorArgs,
-                cookiesAvailable = hasUsableCookies(options),
             ).forEach { extractorArgs ->
                 add(
                     SafeModeAttempt(
@@ -987,43 +906,8 @@ class DownloadWorker @AssistedInject constructor(
                     ),
                 )
             }
-            if (hasUsableCookies(options)) {
-                addAll(
-                    youtubeAuthenticatedSelectorAttempts(
-                        requestedSelector = adaptiveSelector,
-                        poToken = options.youtubePoToken,
-                        preferredHint = options.youtubePoTokenClientHint,
-                        dataSyncId = options.youtubeDataSyncId,
-                    ).map { attempt ->
-                        attempt.copy(label = "authenticated ${attempt.label}")
-                    },
-                )
-            }
         }
         return dedupeRecoveryAttempts(attempts)
-    }
-
-    private fun youtubeProgressiveRecoveryAttempts(
-        poToken: String?,
-        preferredHint: String,
-        dataSyncId: String?,
-    ): List<SafeModeAttempt> {
-        return YoutubeRequestPlanner.progressiveRecoveryAttempts(
-            poToken = poToken,
-            preferredHint = preferredHint,
-            dataSyncId = dataSyncId,
-        ).map { attempt ->
-            SafeModeAttempt(
-                label = attempt.label,
-                selector = attempt.selector,
-                extractorArgs = attempt.extractorArgs,
-            )
-        }
-    }
-
-    private fun hasUsableCookies(options: DownloadOptions): Boolean {
-        val cookiesPath = options.youtubeCookiesPath ?: return false
-        return File(cookiesPath).exists()
     }
 
     private fun DownloadOptions.asFreshDownloadRetry(): DownloadOptions {
@@ -2652,11 +2536,6 @@ class DownloadWorker @AssistedInject constructor(
             fallbackExtractorArgs = inputData.getString(WorkerKeys.FALLBACK_EXTRACTOR_ARGS).orEmpty().ifBlank { null },
             loadInfoJsonPath = inputData.getString(WorkerKeys.LOAD_INFO_JSON_PATH).orEmpty().ifBlank { null },
             userAgentHeader = inputData.getString(WorkerKeys.USER_AGENT_HEADER).orEmpty().ifBlank { null },
-            youtubeAuthEnabled = inputData.getBoolean(WorkerKeys.YOUTUBE_AUTH_ENABLED, false),
-            youtubeCookiesPath = inputData.getString(WorkerKeys.YOUTUBE_COOKIES_PATH).orEmpty().ifBlank { null },
-            youtubePoToken = inputData.getString(WorkerKeys.YOUTUBE_PO_TOKEN).orEmpty().ifBlank { null },
-            youtubePoTokenClientHint = inputData.getString(WorkerKeys.YOUTUBE_PO_TOKEN_CLIENT_HINT) ?: "web.gvs",
-            youtubeDataSyncId = inputData.getString(WorkerKeys.YOUTUBE_DATA_SYNC_ID).orEmpty().ifBlank { null },
             mergeOutputFormat = inputData.getString(WorkerKeys.MERGE_OUTPUT_FORMAT).orEmpty().ifBlank { null },
             preferredVideoHeight = inputData.getInt(WorkerKeys.PREFERRED_VIDEO_HEIGHT, -1).takeIf { it > 0 },
             downloadVideoOnly = inputData.getBoolean(WorkerKeys.DOWNLOAD_VIDEO_ONLY, false),

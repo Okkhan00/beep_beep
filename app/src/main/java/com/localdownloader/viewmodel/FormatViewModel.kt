@@ -14,7 +14,6 @@ import com.localdownloader.domain.models.AnalyzedLinkRecord
 import com.localdownloader.domain.models.AppSettings
 import com.localdownloader.domain.models.BatterySaverMode
 import com.localdownloader.domain.models.ContrastMode
-import com.localdownloader.domain.models.CookieProfile
 import com.localdownloader.domain.models.DownloadOptions
 import com.localdownloader.domain.models.FormatChoice
 import com.localdownloader.domain.models.FormatSelectorStyle
@@ -27,7 +26,6 @@ import com.localdownloader.domain.models.SubtitleViewSettings
 import com.localdownloader.domain.models.ThemeMode
 import com.localdownloader.domain.models.VideoInfo
 import com.localdownloader.domain.models.VideoQuality
-import com.localdownloader.domain.models.YoutubeAuthConfig
 import com.localdownloader.domain.models.audioFormatSupportsBitrateControl
 import com.localdownloader.domain.models.choicesForStreamType
 import com.localdownloader.domain.models.effectiveOutputStreamType
@@ -36,7 +34,6 @@ import com.localdownloader.domain.models.resolveAvailableStreamType
 import com.localdownloader.domain.models.resolveAvailableOutputTransform
 import com.localdownloader.domain.models.shouldTreatAsAudioOnlyChoice
 import com.localdownloader.domain.repositories.DownloaderRepository
-import com.localdownloader.utils.CookieTextCodec
 import com.localdownloader.utils.FileUtils
 import com.localdownloader.utils.Logger
 import com.localdownloader.utils.NetworkStatusMonitor
@@ -53,7 +50,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.Locale
-import java.util.UUID
 import javax.inject.Inject
 
 @HiltViewModel
@@ -354,22 +350,11 @@ class FormatViewModel @Inject constructor(
     }
 
     private suspend fun analyzeResolvedUrl(url: String): Result<VideoInfo> {
-        val runtimeCookiesPath = resolveRuntimeCookiesPathForUrl(url)
-        val state = uiState.value
-        val preferredAnalyzeExtractorArgs = buildPreferredAnalyzeExtractorArgs(
-            url = url,
-            youtubeAuthConfig = state.youtubeAuthConfig,
-        )
         return runCatching {
             repository.analyzeUrl(
                 url = url,
-                cookiesPath = runtimeCookiesPath,
-                userAgent = if (state.cookiesEnabled && state.cookieUserAgentEnabled) {
-                    CookieTextCodec.COOKIE_USER_AGENT
-                } else {
-                    null
-                },
-                preferredExtractorArgs = preferredAnalyzeExtractorArgs,
+                userAgent = null,
+                preferredExtractorArgs = null,
             )
         }.getOrElse { throwable ->
             Result.failure(IllegalStateException(throwable.message ?: "Analyze failed", throwable))
@@ -464,22 +449,6 @@ class FormatViewModel @Inject constructor(
                     )
                 }
             },
-        )
-    }
-
-    private fun buildPreferredAnalyzeExtractorArgs(
-        url: String,
-        youtubeAuthConfig: YoutubeAuthConfig,
-    ): String? {
-        val authConfig = youtubeAuthConfig
-            .takeIf { it.enabled && it.isConfigured() }
-            ?: return null
-        if (!isYoutubeUrl(url)) return null
-        return YoutubeRequestPlanner.preferredAuthenticatedExtractorArgs(
-            poToken = authConfig.buildPoTokenValue(),
-            preferredHint = authConfig.clientHint,
-            dataSyncId = authConfig.dataSyncId.ifBlank { null },
-            visitorData = authConfig.visitorData.ifBlank { null },
         )
     }
 
@@ -1180,372 +1149,8 @@ class FormatViewModel @Inject constructor(
         persistSettingsSilently()
     }
 
-    fun onCookiesEnabledChanged(value: Boolean) {
-        _uiState.update { state -> state.copy(cookiesEnabled = value) }
-        persistSettings("Cookie preference saved.", FormatMessageScope.COOKIES)
-    }
-
-    fun onCookieUserAgentEnabledChanged(value: Boolean) {
-        _uiState.update { state -> state.copy(cookieUserAgentEnabled = value) }
-        persistSettings("Cookie header preference saved.", FormatMessageScope.COOKIES)
-    }
-
-    fun importCookieText(rawText: String) {
-        val inferredUrl = CookieTextCodec.inferUrl(rawText)
-        if (inferredUrl.isNullOrBlank()) {
-            _uiState.update { state ->
-                scopedMessageState(
-                    state = state,
-                    scope = FormatMessageScope.COOKIES,
-                    errorMessage = "Could not detect a site URL from the copied cookie text.",
-                )
-            }
-            return
-        }
-        saveCookieProfile(
-            profileId = null,
-            url = inferredUrl,
-            cookiesText = rawText,
-            successMessage = "Cookie imported.",
-        )
-    }
-
-    fun saveCookieProfile(
-        profileId: String?,
-        url: String,
-        cookiesText: String,
-        successMessage: String = "Cookie saved.",
-    ) {
-        val normalizedUrl = CookieTextCodec.normalizeUrl(url)
-        if (normalizedUrl.isNullOrBlank()) {
-            _uiState.update { state ->
-                scopedMessageState(
-                    state = state,
-                    scope = FormatMessageScope.COOKIES,
-                    errorMessage = "Enter a valid website URL for this cookie.",
-                )
-            }
-            return
-        }
-        if (cookiesText.isBlank()) {
-            _uiState.update { state ->
-                scopedMessageState(
-                    state = state,
-                    scope = FormatMessageScope.COOKIES,
-                    errorMessage = "Cookie text cannot be empty.",
-                )
-            }
-            return
-        }
-
-        viewModelScope.launch {
-            val cookieId = profileId ?: UUID.randomUUID().toString()
-            val storedText = CookieTextCodec.buildStoredText(normalizedUrl, cookiesText)
-            runCatching {
-                val localPath = fileUtils.writeTextToInternalFile(
-                    subDirectoryName = "cookies",
-                    targetFileName = "cookie-$cookieId.txt",
-                    content = storedText,
-                )
-                val updatedProfile = CookieProfile(
-                    id = cookieId,
-                    url = normalizedUrl,
-                    cookiesText = storedText,
-                    localFilePath = localPath,
-                    updatedAtEpochMs = System.currentTimeMillis(),
-                )
-                val current = uiState.value
-                val updatedProfiles = current.cookieProfiles
-                    .filterNot { it.id == cookieId }
-                    .plus(updatedProfile)
-                    .sortedByDescending { it.updatedAtEpochMs }
-                val newSettings = current.appSettings.copy(
-                    cookiesEnabled = true,
-                    cookieProfiles = updatedProfiles,
-                    cookieUserAgentEnabled = current.cookieUserAgentEnabled,
-                )
-                repository.updateSettings(newSettings)
-                _uiState.update { state ->
-                    state.copy(
-                        appSettings = newSettings,
-                        cookiesEnabled = true,
-                        cookieProfiles = updatedProfiles,
-                        messageScope = FormatMessageScope.COOKIES,
-                        infoMessage = successMessage,
-                        errorMessage = null,
-                    )
-                }
-            }.onFailure { error ->
-                _uiState.update { state ->
-                    scopedMessageState(
-                        state = state,
-                        scope = FormatMessageScope.COOKIES,
-                        errorMessage = error.message ?: "Unable to save cookie.",
-                    )
-                }
-            }
-        }
-    }
-
-    fun deleteCookieProfile(profileId: String) {
-        viewModelScope.launch {
-            runCatching {
-                val current = uiState.value
-                val profilePath = current.cookieProfiles
-                    .firstOrNull { it.id == profileId }
-                    ?.localFilePath
-                    ?.takeIf { it.isNotBlank() }
-                val updatedProfiles = current.cookieProfiles.filterNot { it.id == profileId }
-                val newSettings = current.appSettings.copy(cookieProfiles = updatedProfiles)
-                repository.updateSettings(newSettings)
-                profilePath?.let(fileUtils::deleteManagedFile)
-                _uiState.update { state ->
-                    state.copy(
-                        appSettings = newSettings,
-                        cookieProfiles = updatedProfiles,
-                        messageScope = FormatMessageScope.COOKIES,
-                        infoMessage = "Cookie removed.",
-                        errorMessage = null,
-                    )
-                }
-            }.onFailure { error ->
-                _uiState.update { state ->
-                    scopedMessageState(
-                        state = state,
-                        scope = FormatMessageScope.COOKIES,
-                        errorMessage = error.message ?: "Unable to remove cookie.",
-                    )
-                }
-            }
-        }
-    }
-
-    fun clearAllCookieProfiles() {
-        viewModelScope.launch {
-            runCatching {
-                val current = uiState.value
-                val profilePaths = current.cookieProfiles
-                    .mapNotNull { profile -> profile.localFilePath.takeIf { it.isNotBlank() } }
-                val newSettings = current.appSettings.copy(cookieProfiles = emptyList())
-                repository.updateSettings(newSettings)
-                profilePaths.forEach(fileUtils::deleteManagedFile)
-                _uiState.update { state ->
-                    state.copy(
-                        appSettings = newSettings,
-                        cookieProfiles = emptyList(),
-                        messageScope = FormatMessageScope.COOKIES,
-                        infoMessage = "All cookies removed.",
-                        errorMessage = null,
-                    )
-                }
-            }.onFailure { error ->
-                _uiState.update { state ->
-                    scopedMessageState(
-                        state = state,
-                        scope = FormatMessageScope.COOKIES,
-                        errorMessage = error.message ?: "Unable to clear cookies.",
-                    )
-                }
-            }
-        }
-    }
-
-    fun replaceCookieFromBrowser(
-        profileId: String?,
-        url: String,
-        cookieText: String,
-    ) {
-        val normalizedUrl = CookieTextCodec.normalizeUrl(url)
-        if (normalizedUrl.isNullOrBlank()) {
-            _uiState.update { state ->
-                scopedMessageState(
-                    state = state,
-                    scope = FormatMessageScope.COOKIES,
-                    errorMessage = "That site URL could not be used for cookies.",
-                )
-            }
-            return
-        }
-        if (cookieText.isBlank()) {
-            _uiState.update { state ->
-                scopedMessageState(
-                    state = state,
-                    scope = FormatMessageScope.COOKIES,
-                    errorMessage = "No cookies were captured from that page yet.",
-                )
-            }
-            return
-        }
-        saveCookieProfile(
-            profileId = profileId,
-            url = normalizedUrl,
-            cookiesText = if (cookieText.trimStart().startsWith("# Netscape HTTP Cookie File")) {
-                CookieTextCodec.buildStoredText(normalizedUrl, cookieText)
-            } else {
-                CookieTextCodec.fromCookieHeader(normalizedUrl, cookieText)
-            },
-            successMessage = "Cookies updated from browser.",
-        )
-    }
-
-    fun onCookieExportFinished(
-        success: Boolean,
-        errorMessage: String?,
-    ) {
-        _uiState.update { state ->
-            scopedMessageState(
-                state = state,
-                scope = FormatMessageScope.COOKIES,
-                infoMessage = if (success) "Cookies exported." else null,
-                errorMessage = if (success) null else errorMessage ?: "Unable to export cookies.",
-            )
-        }
-    }
-
-    fun saveYoutubeAuthSession(
-        cookieText: String,
-        authConfig: YoutubeAuthConfig,
-    ) {
-        if (cookieText.isBlank()) {
-            _uiState.update { state ->
-                scopedMessageState(
-                    state = state,
-                    scope = FormatMessageScope.YOUTUBE_ACCESS,
-                    errorMessage = "No YouTube cookies were captured from the login page.",
-                )
-            }
-            return
-        }
-        if (!authConfig.isConfigured()) {
-            _uiState.update { state ->
-                scopedMessageState(
-                    state = state,
-                    scope = FormatMessageScope.YOUTUBE_ACCESS,
-                    errorMessage = "No YouTube session hints were captured yet. Let the sample video load, then try Save Access again.",
-                )
-            }
-            return
-        }
-
-        viewModelScope.launch {
-            runCatching {
-                val current = uiState.value
-                val updatedProfiles = upsertYoutubeCookieProfile(
-                    existingProfiles = current.cookieProfiles,
-                    cookieText = cookieText,
-                )
-                val savedConfig = authConfig.copy(
-                    enabled = true,
-                    updatedAtEpochMs = System.currentTimeMillis(),
-                )
-                val newSettings = current.appSettings.copy(
-                    cookiesEnabled = true,
-                    cookieProfiles = updatedProfiles,
-                    youtubeAuthConfig = savedConfig,
-                )
-                repository.updateSettings(newSettings)
-                _uiState.update { state ->
-                    state.copy(
-                        appSettings = newSettings,
-                        cookiesEnabled = true,
-                        cookieProfiles = updatedProfiles,
-                        youtubeAuthConfig = savedConfig,
-                        messageScope = FormatMessageScope.YOUTUBE_ACCESS,
-                        infoMessage = "YouTube access saved. Long-form downloads can now retry with your account session.",
-                        errorMessage = null,
-                    )
-                }
-            }.onFailure { error ->
-                _uiState.update { state ->
-                    scopedMessageState(
-                        state = state,
-                        scope = FormatMessageScope.YOUTUBE_ACCESS,
-                        errorMessage = error.message ?: "Unable to save YouTube access.",
-                    )
-                }
-            }
-        }
-    }
-
-    fun setYoutubeAuthEnabled(enabled: Boolean) {
-        val current = uiState.value.youtubeAuthConfig
-        if (enabled && !current.isConfigured()) {
-            _uiState.update { state ->
-                scopedMessageState(
-                    state = state,
-                    scope = FormatMessageScope.YOUTUBE_ACCESS,
-                    errorMessage = "Save YouTube access first, then turn it on.",
-                )
-            }
-            return
-        }
-        _uiState.update { state ->
-            state.copy(
-                youtubeAuthConfig = state.youtubeAuthConfig.copy(enabled = enabled),
-            )
-        }
-        persistSettings(
-            if (enabled) {
-                "YouTube access enabled."
-            } else {
-                "YouTube access disabled."
-            },
-            FormatMessageScope.YOUTUBE_ACCESS,
-        )
-    }
-
-    fun clearYoutubeAuthConfig() {
-        viewModelScope.launch {
-            runCatching {
-                val current = uiState.value
-                val newSettings = current.appSettings.copy(
-                    youtubeAuthConfig = YoutubeAuthConfig(),
-                )
-                repository.updateSettings(newSettings)
-                _uiState.update { state ->
-                    state.copy(
-                        appSettings = newSettings,
-                        youtubeAuthConfig = YoutubeAuthConfig(),
-                        messageScope = FormatMessageScope.YOUTUBE_ACCESS,
-                        infoMessage = "Saved YouTube access was cleared.",
-                        errorMessage = null,
-                    )
-                }
-            }.onFailure { error ->
-                _uiState.update { state ->
-                    scopedMessageState(
-                        state = state,
-                        scope = FormatMessageScope.YOUTUBE_ACCESS,
-                        errorMessage = error.message ?: "Unable to clear YouTube access.",
-                    )
-                }
-            }
-        }
-    }
-
     fun saveSettings() {
         persistSettings("Settings saved locally.", FormatMessageScope.SETTINGS)
-    }
-
-    fun dismissDownloadSetupNotice() {
-        val current = uiState.value
-        if (current.appSettings.hasSeenDownloadSetupNotice) return
-
-        val updatedSettings = current.appSettings.copy(hasSeenDownloadSetupNotice = true)
-        _uiState.update { state -> state.copy(appSettings = updatedSettings) }
-
-        viewModelScope.launch {
-            runCatching { repository.updateSettings(updatedSettings) }
-                .onFailure { error ->
-                    _uiState.update { state ->
-                        scopedMessageState(
-                            state = state,
-                            scope = FormatMessageScope.BROWSER,
-                            errorMessage = error.message ?: "Unable to save the setup reminder state.",
-                        )
-                    }
-                }
-        }
     }
 
     fun resetSettingsToDefaults() {
@@ -1563,10 +1168,6 @@ class FormatViewModel @Inject constructor(
                 embedThumbnail = defaults.autoEmbedThumbnail,
                 autoRemoveMissingFilesFromLibrary = defaults.autoRemoveMissingFilesFromLibrary,
                 deleteFromStorageWhenRemovedInApp = defaults.deleteFromStorageWhenRemovedInApp,
-                cookiesEnabled = defaults.cookiesEnabled,
-                cookieUserAgentEnabled = defaults.cookieUserAgentEnabled,
-                cookieProfiles = defaults.cookieProfiles,
-                youtubeAuthConfig = defaults.youtubeAuthConfig,
                 notifyCompletedDownloads = defaults.notifyCompletedDownloads,
                 notifyDownloadErrors = defaults.notifyDownloadErrors,
                 notifyCanceledDownloads = defaults.notifyCanceledDownloads,
@@ -1642,10 +1243,6 @@ class FormatViewModel @Inject constructor(
                 deleteFromStorageWhenRemovedInApp = state.deleteFromStorageWhenRemovedInApp,
                 maxConcurrentDownloads = state.maxConcurrentDownloads,
                 allowMeteredDownloads = state.allowMeteredDownloads,
-                cookiesEnabled = state.cookiesEnabled,
-                cookieUserAgentEnabled = state.cookieUserAgentEnabled,
-                cookieProfiles = state.cookieProfiles,
-                youtubeAuthConfig = state.youtubeAuthConfig,
                 notifyCompletedDownloads = state.notifyCompletedDownloads,
                 notifyDownloadErrors = state.notifyDownloadErrors,
                 notifyCanceledDownloads = state.notifyCanceledDownloads,
@@ -1790,9 +1387,7 @@ class FormatViewModel @Inject constructor(
 
         val (downloadExtractorArgs, fallbackExtractorArgs) = resolveDownloadExtractorArgs(
             info = info,
-            cookiesAvailable = resolveRuntimeCookiesPathForUrl(info.webpageUrl) != null,
         )
-        val youtubeAuthConfig = state.youtubeAuthConfig.takeIf { it.enabled && it.isConfigured() }
 
         fun buildOptionsForSelection(
             sourceUrl: String,
@@ -1857,7 +1452,6 @@ class FormatViewModel @Inject constructor(
             )
             val isAudioOnly = resolvedOutputStreamType == StreamType.AUDIO_ONLY
             val shouldBypassMediaPostProcessing = !info.isPlaylist && selectedChoice?.isImageLike == true
-            val runtimeCookiesPath = resolveRuntimeCookiesPathForUrl(sourceUrl)
             val normalizedRequestedContainer = container.trim().lowercase().ifBlank { null }
             val selectedChoiceContainer = selectedChoice?.container
                 ?.trim()
@@ -1910,16 +1504,6 @@ class FormatViewModel @Inject constructor(
                     extractorArgs = downloadExtractorArgs,
                     fallbackExtractorArgs = fallbackExtractorArgs,
                     loadInfoJsonPath = reusableInfoJsonPath,
-                    userAgentHeader = if (state.cookiesEnabled && state.cookieUserAgentEnabled) {
-                        CookieTextCodec.COOKIE_USER_AGENT
-                    } else {
-                        null
-                    },
-                    youtubeAuthEnabled = runtimeCookiesPath != null && youtubeAuthConfig != null,
-                    youtubeCookiesPath = runtimeCookiesPath,
-                    youtubePoToken = youtubeAuthConfig?.buildPoTokenValue(),
-                    youtubePoTokenClientHint = youtubeAuthConfig?.clientHint ?: "web.gvs",
-                    youtubeDataSyncId = youtubeAuthConfig?.dataSyncId?.ifBlank { null },
                     mergeOutputFormat = mergeCompatibility.resolvedContainer,
                     preferredVideoHeight = selectedChoice?.height ?: state.selectedQuality.maxHeight,
                     preferredAudioLanguage = selectedChoice?.audioLanguage,
@@ -2782,7 +2366,6 @@ class FormatViewModel @Inject constructor(
 
     private fun resolveDownloadExtractorArgs(
         info: VideoInfo,
-        cookiesAvailable: Boolean,
     ): Pair<String?, String?> {
         val analysisExtractorArgs = info.extractorArgs?.trim()?.ifBlank { null }
         if (!isYoutubeUrl(info.webpageUrl)) {
@@ -2791,7 +2374,6 @@ class FormatViewModel @Inject constructor(
 
         val fallbackExtractorArgs = YoutubeRequestPlanner.recoveryCandidates(
             selectedExtractorArgs = analysisExtractorArgs,
-            cookiesAvailable = cookiesAvailable,
         ).firstOrNull()
 
         return analysisExtractorArgs to fallbackExtractorArgs
@@ -2800,56 +2382,6 @@ class FormatViewModel @Inject constructor(
     private fun isYoutubeUrl(url: String): Boolean {
         val normalized = url.lowercase()
         return normalized.contains("youtube.com") || normalized.contains("youtu.be")
-    }
-
-    private fun resolveRuntimeCookiesPathForUrl(url: String): String? {
-        val state = uiState.value
-        if (!state.cookiesEnabled) return null
-        val relevantProfiles = CookieTextCodec.findRelevantProfiles(state.cookieProfiles, url)
-            .map(::ensureCookieProfileFile)
-        if (relevantProfiles.isEmpty()) return null
-        return fileUtils.writeTextToInternalFile(
-            subDirectoryName = "cookies",
-            targetFileName = "runtime-cookies.txt",
-            content = CookieTextCodec.buildRuntimeCookieFile(relevantProfiles),
-        )
-    }
-
-    private fun ensureCookieProfileFile(profile: CookieProfile): CookieProfile {
-        val normalizedText = CookieTextCodec.buildStoredText(profile.url, profile.cookiesText)
-        val targetFileName = "cookie-${profile.id}.txt"
-        val targetPath = profile.localFilePath.ifBlank {
-            fileUtils.writeTextToInternalFile(
-                subDirectoryName = "cookies",
-                targetFileName = targetFileName,
-                content = normalizedText,
-            )
-        }
-        val file = File(targetPath)
-        val shouldRewrite = !file.exists() || runCatching {
-            file.useLines { lines ->
-                lines.firstOrNull()?.trim() != "# Netscape HTTP Cookie File"
-            }
-        }.getOrDefault(true)
-
-        if (shouldRewrite) {
-            val rewrittenPath = fileUtils.writeTextToInternalFile(
-                subDirectoryName = "cookies",
-                targetFileName = targetFileName,
-                content = normalizedText,
-            )
-            return profile.copy(
-                cookiesText = normalizedText,
-                localFilePath = rewrittenPath,
-                updatedAtEpochMs = System.currentTimeMillis(),
-            )
-        }
-
-        return if (profile.cookiesText != normalizedText) {
-            profile.copy(cookiesText = normalizedText)
-        } else {
-            profile
-        }
     }
 
     private fun applySettings(settings: AppSettings) {
@@ -2883,10 +2415,6 @@ class FormatViewModel @Inject constructor(
                 embedThumbnail = settings.autoEmbedThumbnail,
                 autoRemoveMissingFilesFromLibrary = settings.autoRemoveMissingFilesFromLibrary,
                 deleteFromStorageWhenRemovedInApp = settings.deleteFromStorageWhenRemovedInApp,
-                cookiesEnabled = settings.cookiesEnabled,
-                cookieUserAgentEnabled = settings.cookieUserAgentEnabled,
-                cookieProfiles = settings.cookieProfiles,
-                youtubeAuthConfig = settings.youtubeAuthConfig,
                 notifyCompletedDownloads = settings.notifyCompletedDownloads,
                 notifyDownloadErrors = settings.notifyDownloadErrors,
                 notifyCanceledDownloads = settings.notifyCanceledDownloads,
@@ -2908,36 +2436,6 @@ class FormatViewModel @Inject constructor(
 
     private fun normalizeTemplateValue(value: String, fallback: String): String {
         return value.trim().ifBlank { fallback }
-    }
-
-    private fun upsertYoutubeCookieProfile(
-        existingProfiles: List<CookieProfile>,
-        cookieText: String,
-    ): List<CookieProfile> {
-        val youtubeUrl = "https://www.youtube.com"
-        val storedText = if (cookieText.trimStart().startsWith("# Netscape HTTP Cookie File")) {
-            CookieTextCodec.buildStoredText(youtubeUrl, cookieText)
-        } else {
-            CookieTextCodec.fromCookieHeader(youtubeUrl, cookieText)
-        }
-        val existingProfile = CookieTextCodec.findBestMatch(existingProfiles, youtubeUrl)
-        val profileId = existingProfile?.id ?: UUID.randomUUID().toString()
-        val localPath = fileUtils.writeTextToInternalFile(
-            subDirectoryName = "cookies",
-            targetFileName = "cookie-$profileId.txt",
-            content = storedText,
-        )
-        val updatedProfile = CookieProfile(
-            id = profileId,
-            url = youtubeUrl,
-            cookiesText = storedText,
-            localFilePath = localPath,
-            updatedAtEpochMs = System.currentTimeMillis(),
-        )
-        return existingProfiles
-            .filterNot { it.id == profileId }
-            .plus(updatedProfile)
-            .sortedByDescending { it.updatedAtEpochMs }
     }
 
     private fun shouldShowRuntimeHint(message: String): Boolean {

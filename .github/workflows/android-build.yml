@@ -60,6 +60,17 @@ jobs:
           echo "### Debug APK" >> "$GITHUB_STEP_SUMMARY"
           echo "\`$APK\` ($(du -h "$APK" | cut -f1))" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Inspect APK contents (native libs, permissions)
+        run: |
+          APK=$(ls app/build/outputs/apk/standard/debug/*.apk | head -n1)
+          echo "### APK native libraries" >> "$GITHUB_STEP_SUMMARY"
+          unzip -l "$APK" | grep -E "lib/.*(ffmpeg|python|qjs|c\+\+)" | tee -a "$GITHUB_STEP_SUMMARY" || echo "no matching native libs found"
+          echo "### ABI folders" >> "$GITHUB_STEP_SUMMARY"
+          unzip -l "$APK" | grep -oE "lib/[^/]+/" | sort -u | tee -a "$GITHUB_STEP_SUMMARY"
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n1)
+          echo "### Declared permissions" >> "$GITHUB_STEP_SUMMARY"
+          "$BT/aapt2" dump permissions "$APK" | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:

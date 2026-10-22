@@ -278,10 +278,6 @@
     <string name="queue_subtitle_empty">ಇನ್ನೂ ಡೌನ್‌ಲೋಡ್‌ಗಳು ಇಲ್ಲ. tasks ಆರಂಭವಾದಾಗ ಅವುಗಳ ಸ್ಥಿತಿಗಳು ಇಲ್ಲಿ ಕಾಣುತ್ತವೆ.</string>
     <string name="queue_subtitle_all">ಎಲ್ಲಾ ಸ್ಥಿತಿಗಳಲ್ಲೂ %1$d ಡೌನ್‌ಲೋಡ್‌ಗಳು ಟ್ರ್ಯಾಕ್ ಆಗುತ್ತಿವೆ</string>
     <string name="queue_subtitle_filtered">ಈಗ %2$s ನಲ್ಲಿ %1$d items ಇವೆ</string>
-    <string name="queue_recovery_stuck_youtube">ಈ YouTube item %1$s ರಿಂದ ನವೀಕರಿಸಲ್ಪಟ್ಟಿಲ್ಲ. playback access checks ಡೌನ್‌ಲೋಡ್ ಅನ್ನು ಅಡ್ಡಿಪಡಿಸಿದಾಗ cookies ಅಥವಾ PO ಸೃಷ್ಟಿ ಸಹಾಯ ಮಾಡಬಹುದು.</string>
-    <string name="queue_recovery_stuck">ಈ item %1$s ರಿಂದ ನವೀಕರಿಸಲ್ಪಟ್ಟಿಲ್ಲ. site ಗೆ signed-in ಅಥವಾ region-matched session ಬೇಕಾದರೆ cookies ಸಹಾಯ ಮಾಡಬಹುದು.</string>
-    <string name="queue_recovery_youtube">Settings ಅಥವಾ More ಮೂಲಕ cookies ಸೇರಿಸಿ PO ಸೃಷ್ಟಿಯನ್ನು refresh ಮಾಡಿದ ನಂತರ YouTube failures ಬಹಳ ಬಾರಿ ಸರಿಯಾಗುತ್ತವೆ.</string>
-    <string name="queue_recovery_default">redirects, rate limits, ಅಥವಾ protected access ನಂತರ ಈ download ವಿಫಲವಾದರೆ ಮೊದಲು cookies ಪ್ರಯತ್ನಿಸಿ. ಇನ್ನೂ ವಿಫಲವಾದರೆ logs ರಫ್ತು ಮಾಡಿ ಸಮಸ್ಯೆಯನ್ನು ವರದಿ ಮಾಡಿ.</string>
     <string name="history_title">ಇತಿಹಾಸ</string>
     <string name="history_task_summary">task ಸಾರಾಂಶ</string>
     <string name="history_empty_title">ಇನ್ನೂ ಹೊಂದುವ history ಇಲ್ಲ</string>

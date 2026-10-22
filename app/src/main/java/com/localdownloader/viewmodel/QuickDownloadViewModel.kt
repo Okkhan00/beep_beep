@@ -16,9 +16,7 @@ import com.localdownloader.domain.repositories.DownloaderRepository
 import com.localdownloader.downloader.FormatSelectorBuilder
 import com.localdownloader.downloader.YoutubeRequestPlanner
 import com.localdownloader.downloader.isValidMergeContainer
-import com.localdownloader.downloader.looksLikeYoutubeUrl
 import com.localdownloader.ui.model.toReadableSize
-import com.localdownloader.utils.CookieTextCodec
 import com.localdownloader.utils.FileUtils
 import com.localdownloader.utils.Logger
 import com.localdownloader.utils.NetworkStatusMonitor
@@ -186,29 +184,10 @@ class QuickDownloadViewModel @Inject constructor(
     private fun analyzeUrl(url: String) {
         viewModelScope.launch {
             val settings = _uiState.value.appSettings
-            val cookiesPath = resolveCookiesPath(url, settings)
-            val userAgent = if (settings.cookieUserAgentEnabled) {
-                CookieTextCodec.COOKIE_USER_AGENT
-            } else {
-                null
-            }
-
-            val preferredExtractorArgs = if (looksLikeYoutubeUrl(url) && settings.youtubeAuthConfig.enabled && settings.youtubeAuthConfig.isConfigured()) {
-                YoutubeRequestPlanner.preferredAuthenticatedExtractorArgs(
-                    poToken = settings.youtubeAuthConfig.buildPoTokenValue(),
-                    preferredHint = settings.youtubeAuthConfig.clientHint,
-                    dataSyncId = settings.youtubeAuthConfig.dataSyncId.ifBlank { null },
-                    visitorData = settings.youtubeAuthConfig.visitorData.ifBlank { null },
-                )
-            } else {
-                null
-            }
-
             val result = repository.analyzeUrl(
                 url = url,
-                cookiesPath = cookiesPath,
-                userAgent = userAgent,
-                preferredExtractorArgs = preferredExtractorArgs,
+                userAgent = null,
+                preferredExtractorArgs = null,
             )
 
             result.fold(
@@ -515,8 +494,6 @@ class QuickDownloadViewModel @Inject constructor(
                 null
             }
 
-            val cookiesPath = resolveCookiesPath(state.url, state.appSettings)
-
             val baseTemplate = if (isAudio) {
                 state.appSettings.defaultAudioOutputTemplate
             } else {
@@ -544,10 +521,6 @@ class QuickDownloadViewModel @Inject constructor(
                 formatId = formatId,
                 outputTemplate = resolvedOutputTemplate,
                 thumbnailUrl = info.thumbnailUrl,
-                youtubeCookiesPath = cookiesPath,
-                youtubeAuthEnabled = state.appSettings.youtubeAuthConfig.isConfigured(),
-                youtubePoToken = state.appSettings.youtubeAuthConfig.buildPoTokenValue(),
-                youtubePoTokenClientHint = state.appSettings.youtubeAuthConfig.clientHint,
                 mergeOutputFormat = mergeFormat,
                 preferredVideoHeight = if (!isAudio) state.selectedVideoQuality?.height else null,
                 expectedDurationSeconds = info.durationSeconds,
@@ -899,12 +872,6 @@ class QuickDownloadViewModel @Inject constructor(
         return Regex("""(\d+)x(\d+)""").find(trimmed)?.groupValues?.getOrNull(2)?.toIntOrNull()
             ?: Regex("""(\d+)p""").find(trimmed)?.groupValues?.getOrNull(1)?.toIntOrNull()
             ?: trimmed.toIntOrNull()
-    }
-
-    private fun resolveCookiesPath(url: String, settings: AppSettings): String? {
-        if (!settings.cookiesEnabled) return null
-        val profile = CookieTextCodec.findBestMatch(settings.cookieProfiles, url)
-        return profile?.localFilePath?.takeIf { File(it).exists() }
     }
 
     private fun formatDurationSeconds(seconds: Long?): String? {

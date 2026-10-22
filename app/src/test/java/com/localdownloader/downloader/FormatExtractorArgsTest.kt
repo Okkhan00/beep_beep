@@ -11,15 +11,9 @@ class FormatExtractorArgsTest {
     @Test
     fun buildAnalyzeArgsForRequest_neverDisablesCertificateValidation() {
         val tempDir = Files.createTempDirectory("format-extractor-args")
-        val cookieFile = Files.createTempFile(tempDir, "cookies-", ".txt").toFile().apply {
-            writeText("# Netscape HTTP Cookie File")
-            deleteOnExit()
-        }
-
         val args = buildAnalyzeArgsForRequest(
             url = "https://example.com/watch",
             extractorArgs = "site:mode=default",
-            cookiesPath = cookieFile.absolutePath,
             userAgent = "UnitTestAgent/1.0",
             capturedInfoJsonPath = tempDir.resolve("capture.info.json").toString(),
             tempDirPath = tempDir.toString(),
@@ -27,7 +21,7 @@ class FormatExtractorArgsTest {
         )
 
         assertEquals("-J", args.first())
-        assertTrue(args.contains("--cookies"))
+        assertFalse(args.contains("--cookies"))
         assertTrue(args.contains("--add-header"))
         assertTrue(args.contains("--extractor-args"))
         assertFalse(args.contains("--no-check-certificates"))
@@ -40,7 +34,6 @@ class FormatExtractorArgsTest {
         val args = buildAnalyzeArgsForRequest(
             url = "https://example.com/watch",
             extractorArgs = null,
-            cookiesPath = null,
             userAgent = null,
             capturedInfoJsonPath = tempDir.resolve("capture.info.json").toString(),
             tempDirPath = tempDir.toString(),
@@ -59,7 +52,6 @@ class FormatExtractorArgsTest {
         val args = buildAnalyzeArgsForRequest(
             url = "https://example.com/watch",
             extractorArgs = null,
-            cookiesPath = null,
             userAgent = null,
             capturedInfoJsonPath = tempDir.resolve("capture.info.json").toString(),
             tempDirPath = tempDir.toString(),
@@ -104,7 +96,6 @@ class FormatExtractorArgsTest {
         val args = buildAnalyzeArgsForRequest(
             url = "https://www.youtube.com/watch?v=abc123",
             extractorArgs = null,
-            cookiesPath = null,
             userAgent = null,
             capturedInfoJsonPath = tempDir.resolve("capture.info.json").toString(),
             tempDirPath = tempDir.toString(),

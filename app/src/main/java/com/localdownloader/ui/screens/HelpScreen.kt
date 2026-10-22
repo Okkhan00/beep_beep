@@ -35,7 +35,6 @@ import androidx.compose.material.icons.outlined.BatteryChargingFull
 import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.ClosedCaption
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Cookie
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.HelpOutline
@@ -97,8 +96,6 @@ import com.localdownloader.ui.support.shareAppLogs
 @Composable
 fun HelpScreen(
     onBack: () -> Unit,
-    onOpenCookies: () -> Unit,
-    onOpenYoutubeAccess: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -134,7 +131,7 @@ fun HelpScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 4.dp),
-                placeholder = { Text("Search help topics (e.g. subtitles, 429, cookies, vault)...") },
+                placeholder = { Text("Search help topics (e.g. subtitles, 429, vault)...") },
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Outlined.Search,
@@ -169,8 +166,6 @@ fun HelpScreen(
         }
         item {
             HelpActionGrid(
-                onOpenCookies = onOpenCookies,
-                onOpenYoutubeAccess = onOpenYoutubeAccess,
                 onExportLogs = { shareAppLogs(context) },
                 onReportIssue = { openSupportIssue(context) },
                 modifier = Modifier.padding(horizontal = 16.dp),
@@ -229,7 +224,7 @@ fun HelpScreen(
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
-                            text = "Try searching with different keywords like 'download', 'cookies', 'pin', or 'subtitles'.",
+                            text = "Try searching with different keywords like 'download', 'pin', or 'subtitles'.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -245,8 +240,6 @@ fun HelpScreen(
                         onToggle = {
                             expandedTopicId = if (expandedTopicId == topic.id) null else topic.id
                         },
-                        onOpenCookies = onOpenCookies,
-                        onOpenYoutubeAccess = onOpenYoutubeAccess,
                         onExportLogs = { shareAppLogs(context) },
                     )
                 }
@@ -265,8 +258,6 @@ fun HelpScreen(
 
 @Composable
 private fun HelpActionGrid(
-    onOpenCookies: () -> Unit,
-    onOpenYoutubeAccess: () -> Unit,
     onExportLogs: () -> Unit,
     onReportIssue: () -> Unit,
     modifier: Modifier = Modifier,
@@ -275,31 +266,6 @@ private fun HelpActionGrid(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            HelpActionTile(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Outlined.Cookie,
-                title = "Cookie Hub",
-                subtitle = "Manage cookies for Instagram, TikTok & more",
-                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                iconBackgroundColor = MaterialTheme.colorScheme.primaryContainer,
-                iconTint = MaterialTheme.colorScheme.primary,
-                onClick = onOpenCookies,
-            )
-            HelpActionTile(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Outlined.Security,
-                title = "YouTube Access",
-                subtitle = "OAuth login, PoToken & bot checks",
-                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                iconBackgroundColor = MaterialTheme.colorScheme.secondaryContainer,
-                iconTint = MaterialTheme.colorScheme.secondary,
-                onClick = onOpenYoutubeAccess,
-            )
-        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -387,8 +353,6 @@ private fun HelpTopicCard(
     topic: HelpTopic,
     isExpanded: Boolean,
     onToggle: () -> Unit,
-    onOpenCookies: () -> Unit,
-    onOpenYoutubeAccess: () -> Unit,
     onExportLogs: () -> Unit,
 ) {
     val chevronRotation by animateFloatAsState(
@@ -516,28 +480,6 @@ private fun HelpTopicCard(
 
                     // Action Shortcut button if topic has a corresponding feature
                     when (topic.id) {
-                        "youtube_access" -> {
-                            OutlinedButton(
-                                onClick = onOpenYoutubeAccess,
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp),
-                            ) {
-                                Icon(imageVector = Icons.Outlined.Security, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Open YouTube Access Settings")
-                            }
-                        }
-                        "cookies_manager" -> {
-                            OutlinedButton(
-                                onClick = onOpenCookies,
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp),
-                            ) {
-                                Icon(imageVector = Icons.Outlined.Cookie, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Open Cookie Hub")
-                            }
-                        }
                         "troubleshooting_429" -> {
                             OutlinedButton(
                                 onClick = onExportLogs,
@@ -635,7 +577,7 @@ enum class HelpCategory(val displayName: String) {
     SUBTITLES("Subtitles & Dubs"),
     VAULT("Private Vault"),
     BATTERY("Battery & Background"),
-    ACCESS("YouTube & Cookies"),
+    ACCESS("Sources & Limits"),
     TOOLS("Media Tools"),
     STORAGE("Storage & SD Card"),
     TROUBLESHOOTING("Troubleshooting"),
@@ -730,30 +672,21 @@ private fun getHelpTopics(): List<HelpTopic> = listOf(
         tags = listOf("vault", "pin", "lock", "security", "private", "biometric", "hide", "gallery"),
     ),
     HelpTopic(
-        id = "youtube_access",
+        id = "supported_sources",
         category = HelpCategory.ACCESS,
         icon = Icons.Outlined.Security,
-        title = "Fixing YouTube 'Sign in' & Bot Checks",
-        summary = "Solve 'Sign in to confirm you’re not a bot', PoToken generator, and YouTube OAuth.",
-        body = "YouTube frequently triggers automated verification or bot-detection barriers on mobile networks.\n\n• PoToken Generator: Open Settings -> YouTube Access. Local Downloader features an integrated Proof-of-Origin token generator that authenticates requests seamlessly.\n• YouTube OAuth: Sign in with your Google account via OAuth Device Code to download age-restricted, members-only, or private playlist videos.\n• Custom User-Agents: Enable randomized or modern browser user-agents in Settings to bypass anti-scraping blocks.",
+        title = "Supported and unsupported sources",
+        summary = "What this app can and cannot download.",
+        body = "The app downloads publicly accessible media that yt-dlp can extract without logging in.
+
+• Not supported: DRM-protected streams, paywalled or members-only content, content that requires an account login, and private posts.
+• The app does not import cookies, store account credentials, or work around platform restrictions.
+• Only download content you own or have permission to download, and follow the terms of the source site and your local law.",
         tips = listOf(
-            "If YouTube downloads stall with 403 Forbidden, regenerate your PoToken or refresh cookies.",
-            "OAuth tokens are stored securely in local encrypted preferences and never leave your device.",
+            "If a link needs you to sign in, the app will report it as unsupported rather than trying to bypass it.",
+            "Updating yt-dlp from Settings -> Updates can fix extractor errors on public links.",
         ),
-        tags = listOf("youtube", "bot", "potoken", "oauth", "login", "403", "age-restricted", "access"),
-    ),
-    HelpTopic(
-        id = "cookies_manager",
-        category = HelpCategory.ACCESS,
-        icon = Icons.Outlined.Cookie,
-        title = "Cookie Hub for Instagram, TikTok & Facebook",
-        summary = "Download private stories, reels, and member-only posts using Netscape cookie files.",
-        body = "Many platforms (Instagram, TikTok, X, Facebook, Reddit) require active session cookies to view HD content or private user stories.\n\n• Importing Cookies: Export cookies from Chrome/Firefox using a standard browser extension (e.g. 'Get cookies.txt LOCALLY') and import the `.txt` file in Settings -> Cookie Hub.\n• Site Profiles: Assign separate cookie profiles per domain.\n• Security: Cookies are strictly stored in local sandboxed storage and used exclusively during media extraction.",
-        tips = listOf(
-            "Refresh your exported cookie file whenever your social media web session expires.",
-            "Ensure the cookie file format is standard Netscape HTTP Cookie format.",
-        ),
-        tags = listOf("cookies", "instagram", "tiktok", "facebook", "reels", "stories", "login", "netscape"),
+        tags = listOf("unsupported", "drm", "login", "private", "legal", "sources", "youtube"),
     ),
     HelpTopic(
         id = "battery_and_background",

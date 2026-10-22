@@ -37,42 +37,17 @@ enum class YtDlpReleaseChannel(
     }
 }
 
-enum class FfmpegReleaseChannel(
-    val id: String,
-    val title: String,
-    val description: String,
-) {
-    STABLE(
-        id = "stable",
-        title = "Stable Runtime Feed",
-        description = "Downloads the latest Android-compatible FFmpeg runtime package.",
-    ),
-    ;
-
-    companion object {
-        fun fromId(raw: String?): FfmpegReleaseChannel {
-            return entries.firstOrNull { it.id.equals(raw, ignoreCase = true) } ?: STABLE
-        }
-    }
-}
-
 data class UpdatePreferences(
-    val includePrereleaseAppReleases: Boolean = false,
     val autoUpdateYtDlp: Boolean = BuildConfig.YTDLP_AUTO_UPDATE_DEFAULT,
     val checkUpdatesOnStartup: Boolean = true,
     val ytDlpChannel: YtDlpReleaseChannel = YtDlpReleaseChannel.STABLE,
-    val ffmpegChannel: FfmpegReleaseChannel = FfmpegReleaseChannel.STABLE,
 )
 
 data class StartupUpdatePrompt(
-    val appUpdate: ComponentUpdateCheck? = null,
     val ytDlpUpdate: ComponentUpdateCheck? = null,
-    val ffmpegUpdate: ComponentUpdateCheck? = null,
 ) {
     val hasAnyUpdate: Boolean
-        get() = (appUpdate?.updateAvailable == true) ||
-                (ytDlpUpdate?.updateAvailable == true) ||
-                (ffmpegUpdate?.updateAvailable == true)
+        get() = ytDlpUpdate?.updateAvailable == true
 }
 
 @Serializable
@@ -104,12 +79,6 @@ data class ComponentUpdateCheck(
     val releasePageUrl: String? = null,
     val downloadUrl: String? = null,
     val assetName: String? = null,
-)
-
-data class PreparedAppUpdate(
-    val apkPath: String,
-    val requiresInstallPermission: Boolean,
-    val assetName: String,
 )
 
 data class RuntimeInstallResult(

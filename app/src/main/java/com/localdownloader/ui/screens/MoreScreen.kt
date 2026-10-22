@@ -8,11 +8,9 @@ import androidx.compose.material.icons.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Transform
-import androidx.compose.material.icons.rounded.Web
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -29,8 +27,6 @@ fun MoreScreen(
     onOpenConvert: () -> Unit,
     onOpenVideo: () -> Unit,
     onOpenMusic: () -> Unit,
-    onOpenYoutubeAccess: () -> Unit,
-    onOpenCookies: () -> Unit,
     onOpenUpdates: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenHelp: () -> Unit,
@@ -82,25 +78,9 @@ fun MoreScreen(
         }
         item {
             PreferenceNavigationRow(
-                icon = Icons.Rounded.Web,
-                title = stringResource(R.string.more_cookies_title),
-                subtitle = "Saved website sessions",
-                onClick = onOpenCookies,
-            )
-        }
-        item {
-            PreferenceNavigationRow(
-                icon = Icons.Rounded.Shield,
-                title = stringResource(R.string.more_youtube_access_title),
-                subtitle = "YouTube login and session hints",
-                onClick = onOpenYoutubeAccess,
-            )
-        }
-        item {
-            PreferenceNavigationRow(
                 icon = Icons.Rounded.SystemUpdate,
                 title = stringResource(R.string.more_updates_title),
-                subtitle = "App, yt-dlp, and FFmpeg updates",
+                subtitle = "yt-dlp updates",
                 onClick = onOpenUpdates,
             )
         }

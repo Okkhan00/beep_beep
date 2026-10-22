@@ -268,10 +268,6 @@
     <string name="queue_subtitle_empty">まだダウンロードはありません。タスクが始まると状態がここに表示されます。</string>
     <string name="queue_subtitle_all">すべての状態で %1$d 件のダウンロードを追跡中</string>
     <string name="queue_subtitle_filtered">現在 %2$s に %1$d 件あります</string>
-    <string name="queue_recovery_stuck_youtube">この YouTube 項目は %1$s の間更新されていません。再生アクセス確認がダウンロードを妨げる場合、Cookies や PO 生成が役立つことがあります。</string>
-    <string name="queue_recovery_stuck">この項目は %1$s の間更新されていません。サイトにログイン済みまたは地域一致のセッションが必要な場合、Cookies が役立つことがあります。</string>
-    <string name="queue_recovery_youtube">YouTube の失敗は、Settings または More から Cookies を追加し、PO 生成を更新すると改善することが多いです。</string>
-    <string name="queue_recovery_default">リダイレクト、レート制限、保護アクセスの後にこのダウンロードが失敗した場合は、まず Cookies を試してください。それでも失敗するならログをエクスポートして問題を報告してください。</string>
     <string name="history_title">履歴</string>
     <string name="history_task_summary">タスク概要</string>
     <string name="history_empty_title">一致する履歴はまだありません</string>

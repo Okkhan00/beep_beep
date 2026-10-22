@@ -12,9 +12,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Code
-import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material.icons.outlined.NewReleases
-import androidx.compose.material.icons.outlined.Smartphone
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -78,30 +76,10 @@ fun StartupUpdateDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
-                prompt.appUpdate?.takeIf { it.updateAvailable }?.let { update ->
-                    StartupUpdateItemCard(
-                        icon = Icons.Outlined.Smartphone,
-                        title = stringResource(R.string.updates_startup_app_title),
-                        currentVersion = update.currentVersion,
-                        latestVersion = update.latestVersion,
-                        summary = update.summary,
-                    )
-                }
-
                 prompt.ytDlpUpdate?.takeIf { it.updateAvailable }?.let { update ->
                     StartupUpdateItemCard(
                         icon = Icons.Outlined.Code,
                         title = stringResource(R.string.updates_startup_ytdlp_title),
-                        currentVersion = update.currentVersion,
-                        latestVersion = update.latestVersion,
-                        summary = update.summary,
-                    )
-                }
-
-                prompt.ffmpegUpdate?.takeIf { it.updateAvailable }?.let { update ->
-                    StartupUpdateItemCard(
-                        icon = Icons.Outlined.Movie,
-                        title = stringResource(R.string.updates_startup_ffmpeg_title),
                         currentVersion = update.currentVersion,
                         latestVersion = update.latestVersion,
                         summary = update.summary,

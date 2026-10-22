@@ -494,10 +494,6 @@
     </plurals>
     <string name="queue_export_log">log.txt এক্সপোর্ট করুন</string>
     <string name="queue_po_generation">PO generation</string>
-    <string name="queue_recovery_default">redirects, rate limits বা protected access-এর পরে এই ডাউনলোড ব্যর্থ হলে আগে cookies চেষ্টা করুন। তবুও ব্যর্থ হলে logs এক্সপোর্ট করে issue রিপোর্ট করুন।</string>
-    <string name="queue_recovery_stuck">এই আইটেমটি %1$s ধরে আপডেট হয়নি। সাইটে signed-in বা region-matched session লাগলে cookies সাহায্য করতে পারে।</string>
-    <string name="queue_recovery_stuck_youtube">এই YouTube আইটেমটি %1$s ধরে আপডেট হয়নি। playback access checks ডাউনলোড থামালে cookies বা PO generation প্রায়ই সাহায্য করে।</string>
-    <string name="queue_recovery_youtube">Settings বা More থেকে cookies যোগ করে আর PO generation refresh করার পরে YouTube ব্যর্থতা অনেক সময় ঠিক হয়।</string>
     <string name="queue_report_issue">Issue রিপোর্ট করুন</string>
     <string name="queue_resume_window_expired">resume window শেষ হয়ে গেছে</string>
     <string name="queue_resume_within">%1$02d:%2$02d-এর মধ্যে আবার চালু করুন</string>
@@ -743,17 +739,12 @@
     <string name="queue_recovery_title_compatibility">সাইট বা ফরম্যাট পরিবর্তিত হয়ে থাকতে পারে</string>
     <string name="queue_recovery_title_default">সমস্যা সমাধানের সহায়তা</string>
     <string name="queue_recovery_likely_cause">সম্ভাব্য কারণ</string>
-    <string name="queue_recovery_cause_stuck_youtube">YouTube-এর অ্যাক্সেস যাচাই প্রক্রিয়া অগ্রগতি বাধাগ্রস্ত করছে</string>
     <string name="queue_recovery_cause_stuck">সাইটটি হয়তো সেশন বা আটকে থাকা অনুরোধের জন্য অপেক্ষা করছে</string>
-    <string name="queue_recovery_cause_access_youtube">YouTube সাইন-ইন বা প্লেব্যাক অ্যাক্সেসের প্রয়োজনীয়তা</string>
-    <string name="queue_recovery_cause_access">সাইট সেশন, কুকিজ বা অঞ্চলগত সীমাবদ্ধতা</string>
     <string name="queue_recovery_cause_network">নেটওয়ার্ক টাইমআউট বা সাময়িক রেট সীমাবদ্ধতা</string>
     <string name="queue_recovery_cause_postprocessing">FFmpeg মার্জ বা পোস্ট-প্রসেসিং ব্যর্থতা</string>
     <string name="queue_recovery_cause_runtime">রানটাইম ইনিশিয়ালাইজেশন বা ABI সামঞ্জস্যতার সমস্যা</string>
     <string name="queue_recovery_cause_compatibility">এক্সট্র্যাক্টর বা প্রদর্শিত ফরম্যাটের সামঞ্জস্যতার পরিবর্তন</string>
     <string name="queue_recovery_cause_unknown">এই কাজটির জন্য ডায়াগনস্টিকস ও লগে আরও বিস্তারিত পরীক্ষা প্রয়োজন</string>
-    <string name="queue_recovery_access_youtube">এই ব্যর্থতাটি YouTube অ্যাক্সেস বা সাইন-ইন সমস্যার মতো মনে হচ্ছে। YouTube অ্যাক্সেস রিফ্রেশ করুন, কুকিজ ব্যবহার করে দেখুন, তারপর আবার চেষ্টা করুন।</string>
-    <string name="queue_recovery_access_generic">এই ব্যর্থতাটি সাইট সেশন, অঞ্চলগত সীমাবদ্ধতা বা সাইন-ইন সমস্যার মতো মনে হচ্ছে। উৎস সাইটের জন্য কুকিজ ব্যবহার করে দেখুন, তারপর আবার চেষ্টা করুন।</string>
     <string name="queue_recovery_network">এটি নেটওয়ার্ক টাইমআউট বা রেট সীমাবদ্ধতার সমস্যা বলে মনে হচ্ছে। কিছুক্ষণ অপেক্ষা করে আবার চেষ্টা করুন। মোবাইল ডেটা, Wi-Fi বা VPN-এ বারবার ব্যর্থ হলে অন্য সংযোগ ব্যবহার করুন।</string>
     <string name="queue_recovery_postprocessing">মিডিয়াটি সম্ভবত ডাউনলোড হয়েছে, কিন্তু মার্জ, রিমাক্স, থাম্বনেইল বা সাবটাইটেল পোস্ট-প্রসেসিংয়ের সময় ব্যর্থ হয়েছে। একবার আবার চেষ্টা করুন, এবং একই ধরনের FFmpeg ত্রুটি পুনরায় হলে লগ এক্সপোর্ট করুন।</string>
     <string name="queue_recovery_runtime">এটি সাধারণ সাইট ব্যর্থতার চেয়ে রানটাইম ইনিশিয়ালাইজেশন বা ডিভাইস সামঞ্জস্যতার সমস্যা বলে মনে হচ্ছে। রিপোর্ট করার আগে লগ এক্সপোর্ট করুন, যাতে রানটাইমের তথ্য সংরক্ষিত থাকে।</string>

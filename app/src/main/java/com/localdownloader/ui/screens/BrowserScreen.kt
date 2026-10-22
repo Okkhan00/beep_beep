@@ -119,11 +119,6 @@ import com.localdownloader.viewmodel.PlaylistItemUiState
 import kotlinx.coroutines.launch
 import java.util.Locale
 
-private enum class DownloadSetupSheetStep {
-    Intro,
-    Setup,
-}
-
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun BrowserScreen(
@@ -168,13 +163,10 @@ fun BrowserScreen(
     onOpenHistory: () -> Unit,
     onOpenCompress: () -> Unit,
     onOpenConvert: () -> Unit,
-    onOpenYoutubeAccess: () -> Unit,
-    onOpenCookies: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenDownloadSettings: () -> Unit,
     onOpenStorageSettings: () -> Unit,
     onOpenHelp: () -> Unit,
-    onDismissDownloadSetupNotice: () -> Unit,
     onDismissMessage: () -> Unit,
     onDismissMeteredNetworkDialog: () -> Unit,
     onQueueWhenWifiAvailable: () -> Unit,
@@ -186,7 +178,6 @@ fun BrowserScreen(
     val clipboardManager = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     var showOptionsSheet by rememberSaveable { mutableStateOf(false) }
-    var downloadSetupSheetStep by rememberSaveable { mutableStateOf(DownloadSetupSheetStep.Intro) }
     var showBrowseMenu by rememberSaveable { mutableStateOf(false) }
     val homeScrollState = rememberScrollState()
     val errorMessage = uiState.errorMessageFor(FormatMessageScope.BROWSER)
@@ -233,14 +224,8 @@ fun BrowserScreen(
         )
     }
 
-    LaunchedEffect(uiState.videoInfo?.webpageUrl, uiState.shouldShowDownloadSetupNotice) {
-        showOptionsSheet = uiState.videoInfo != null && !uiState.shouldShowDownloadSetupNotice
-    }
-
-    LaunchedEffect(uiState.shouldShowDownloadSetupNotice) {
-        if (uiState.shouldShowDownloadSetupNotice) {
-            downloadSetupSheetStep = DownloadSetupSheetStep.Intro
-        }
+    LaunchedEffect(uiState.videoInfo?.webpageUrl) {
+        showOptionsSheet = uiState.videoInfo != null
     }
 
     val focusManager = LocalFocusManager.current
@@ -500,38 +485,7 @@ fun BrowserScreen(
         }
     }
 
-    if (uiState.shouldShowDownloadSetupNotice) {
-        ModalBottomSheet(
-            onDismissRequest = onDismissDownloadSetupNotice,
-            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-            containerColor = MaterialTheme.colorScheme.surface,
-        ) {
-            DownloadSetupOnboardingSheet(
-                step = downloadSetupSheetStep,
-                onSetUpNow = { downloadSetupSheetStep = DownloadSetupSheetStep.Setup },
-                onOpenCookies = {
-                    onDismissDownloadSetupNotice()
-                    onOpenCookies()
-                },
-                onOpenYoutubeAccess = {
-                    onDismissDownloadSetupNotice()
-                    onOpenYoutubeAccess()
-                },
-                onOpenDownloadSettings = {
-                    onDismissDownloadSetupNotice()
-                    onOpenDownloadSettings()
-                },
-                onOpenStorageSettings = {
-                    onDismissDownloadSetupNotice()
-                    onOpenStorageSettings()
-                },
-                isNightlyBuild = BuildConfig.APP_RELEASE_CHANNEL.equals("nightly", ignoreCase = true),
-                onContinueWithoutCookies = onDismissDownloadSetupNotice,
-            )
-        }
-    }
-
-    if (showOptionsSheet && uiState.videoInfo != null && !uiState.shouldShowDownloadSetupNotice) {
+    if (showOptionsSheet && uiState.videoInfo != null) {
         val optionsSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         val optionsListState = rememberLazyListState()
         val sheetScrollGuard = rememberBottomSheetScrollGuard(optionsListState)
@@ -1032,177 +986,6 @@ private fun ReadyAnalyzedCard(
         }
     }
 }
-
-@Composable
-private fun DownloadSetupOnboardingSheet(
-    step: DownloadSetupSheetStep,
-    onSetUpNow: () -> Unit,
-    onOpenCookies: () -> Unit,
-    onOpenYoutubeAccess: () -> Unit,
-    onOpenDownloadSettings: () -> Unit,
-    onOpenStorageSettings: () -> Unit,
-    isNightlyBuild: Boolean,
-    onContinueWithoutCookies: () -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
-    ) {
-        Surface(
-            color = MaterialTheme.colorScheme.secondaryContainer,
-            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-            shape = RoundedCornerShape(26.dp),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Info,
-                        contentDescription = null,
-                    )
-                    Text(
-                        text = stringResource(
-                            if (step == DownloadSetupSheetStep.Intro) {
-                                R.string.browser_download_setup_intro_title
-                            } else {
-                                R.string.browser_download_setup_setup_title
-                            },
-                        ),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-
-                if (step == DownloadSetupSheetStep.Intro) {
-                    Text(
-                        text = stringResource(R.string.browser_download_setup_intro_body_1),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Text(
-                        text = stringResource(R.string.browser_download_setup_intro_body_2),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.88f),
-                    )
-                } else {
-                    Text(
-                        text = stringResource(R.string.browser_download_setup_setup_body_1),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Text(
-                        text = stringResource(R.string.browser_download_setup_setup_body_2),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.88f),
-                    )
-                    if (isNightlyBuild) {
-                        Text(
-                            text = "This nightly build checks the rolling nightly app release separately from stable.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.88f),
-                        )
-                    }
-                }
-            }
-        }
-
-        if (step == DownloadSetupSheetStep.Intro) {
-            Button(
-                onClick = onSetUpNow,
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(vertical = 14.dp),
-            ) {
-                Text(stringResource(R.string.browser_setup_now))
-            }
-            TextButton(
-                onClick = onContinueWithoutCookies,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(stringResource(R.string.browser_continue_without_cookies))
-            }
-        } else {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Button(
-                    onClick = onOpenStorageSettings,
-                    modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(vertical = 14.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Settings,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Text(
-                        text = "Choose download folders",
-                        modifier = Modifier.padding(start = 8.dp),
-                    )
-                }
-                Button(
-                    onClick = onOpenDownloadSettings,
-                    modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(vertical = 14.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Settings,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Text(
-                        text = "Choose default formats",
-                        modifier = Modifier.padding(start = 8.dp),
-                    )
-                }
-                Button(
-                    onClick = onOpenCookies,
-                    modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(vertical = 14.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Web,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Text(
-                        text = stringResource(R.string.browser_open_cookies),
-                        modifier = Modifier.padding(start = 8.dp),
-                    )
-                }
-                Button(
-                    onClick = onOpenYoutubeAccess,
-                    modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(vertical = 14.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Shield,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Text(
-                        text = stringResource(R.string.browser_open_youtube_access),
-                        modifier = Modifier.padding(start = 8.dp),
-                    )
-                }
-                TextButton(
-                    onClick = onContinueWithoutCookies,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(stringResource(R.string.browser_done_for_now))
-                }
-            }
-        }
-    }
-}
-
 
 @Composable
 private fun OptionsSheetHeader(

@@ -59,7 +59,7 @@ class DownloadRepositoryImpl @Inject constructor(
     private val settingsStore: SettingsStore,
     private val workManager: WorkManager,
     private val fileUtils: FileUtils,
-    private val downloadOptionSecretsStore: DownloadOptionSecretsStore,
+    private val downloadOptionsCodec: DownloadOptionsCodec,
     private val batteryOptimizationManager: BatteryOptimizationManager,
     private val logger: Logger,
 ) : DownloaderRepository {
@@ -91,7 +91,7 @@ class DownloadRepositoryImpl @Inject constructor(
         }
         repositoryScope.launch {
             downloadTaskStore.awaitInitialLoad()
-            migratePersistedTaskSecrets()
+            normalizePersistedTaskOptions()
             pruneFailedAndCanceledHistory(settingsStore.observeSettings().first().downloadHistoryRetentionDays)
             refillQueuedDownloads()
         }
@@ -99,14 +99,12 @@ class DownloadRepositoryImpl @Inject constructor(
 
     override suspend fun analyzeUrl(
         url: String,
-        cookiesPath: String?,
         userAgent: String?,
         preferredExtractorArgs: String?,
     ): Result<VideoInfo> {
         logger.i("DownloadRepository", "analyzeUrl called for: $url")
         val result = formatExtractor.analyze(
             url = url,
-            cookiesPath = cookiesPath,
             userAgent = userAgent,
             preferredExtractorArgs = preferredExtractorArgs,
         )
@@ -547,7 +545,6 @@ class DownloadRepositoryImpl @Inject constructor(
                     .map { it.id }
                     .toList()
                 if (historyTaskIds.isEmpty()) return@withLock 0
-                downloadOptionSecretsStore.clear(historyTaskIds)
                 downloadTaskStore.removeMany(historyTaskIds)
                 historyTaskIds.size
             }
@@ -587,7 +584,6 @@ class DownloadRepositoryImpl @Inject constructor(
 
             if (shouldRemoveMissing && missingTasks.isNotEmpty()) {
                 val missingIds = missingTasks.map { it.id }
-                downloadOptionSecretsStore.clear(missingIds)
                 downloadTaskStore.removeMany(missingIds)
             }
 
@@ -695,7 +691,7 @@ class DownloadRepositoryImpl @Inject constructor(
             updatedAtEpochMs = System.currentTimeMillis(),
         )
 
-        val persistedOptionsJson = downloadOptionSecretsStore.persist(taskId, options)
+        val persistedOptionsJson = downloadOptionsCodec.persist(options)
         downloadTaskStore.upsert(
             task = queuedTask,
             optionsJson = persistedOptionsJson,
@@ -925,7 +921,6 @@ class DownloadRepositoryImpl @Inject constructor(
                         )
                     }
                     downloadTaskStore.clearCachedOptions(taskId)
-                    downloadOptionSecretsStore.clear(taskId)
                     triggerQueuedDownloadRefill()
                 }
             }
@@ -1038,7 +1033,7 @@ class DownloadRepositoryImpl @Inject constructor(
 
     private suspend fun loadTaskOptions(taskId: String): DownloadOptions? {
         val optionsJson = downloadTaskStore.getCachedOptions(taskId) ?: return null
-        return downloadOptionSecretsStore.hydrate(taskId, optionsJson)
+        return downloadOptionsCodec.hydrate(optionsJson)
     }
 
     private fun triggerQueuedDownloadRefill() {
@@ -1095,7 +1090,6 @@ class DownloadRepositoryImpl @Inject constructor(
             ?.let { options -> runCatching { fileUtils.deleteDownloadArtifacts(options.outputTemplate) } }
 
         downloadTaskStore.clearCachedOptions(taskId)
-        downloadOptionSecretsStore.clear(taskId)
         downloadTaskStore.update(taskId) { current ->
             current.copy(
                 status = DownloadStatus.CANCELED,
@@ -1113,20 +1107,19 @@ class DownloadRepositoryImpl @Inject constructor(
         pauseExpiryDeadlines.remove(taskId)
     }
 
-    private suspend fun migratePersistedTaskSecrets() {
+    private suspend fun normalizePersistedTaskOptions() {
         downloadTaskStore.getAllTasks().forEach { task ->
             if (task.status == DownloadStatus.COMPLETED) {
                 if (downloadTaskStore.getCachedOptions(task.id) != null) {
                     downloadTaskStore.clearCachedOptions(task.id)
                 }
-                downloadOptionSecretsStore.clear(task.id)
                 return@forEach
             }
 
             val optionsJson = downloadTaskStore.getCachedOptions(task.id) ?: return@forEach
-            val migratedJson = downloadOptionSecretsStore.migratePersistedOptions(task.id, optionsJson)
-            if (migratedJson != null && migratedJson != optionsJson) {
-                downloadTaskStore.cacheOptions(task.id, migratedJson)
+            val normalizedJson = downloadOptionsCodec.normalize(optionsJson)
+            if (normalizedJson != null && normalizedJson != optionsJson) {
+                downloadTaskStore.cacheOptions(task.id, normalizedJson)
             }
         }
     }
@@ -1144,7 +1137,6 @@ class DownloadRepositoryImpl @Inject constructor(
                 .map { it.id }
                 .toList()
             if (staleTaskIds.isEmpty()) return@withLock 0
-            downloadOptionSecretsStore.clear(staleTaskIds)
             downloadTaskStore.removeMany(staleTaskIds)
             staleTaskIds.size
         }
@@ -1187,7 +1179,6 @@ class DownloadRepositoryImpl @Inject constructor(
             }
         }
 
-        downloadOptionSecretsStore.clear(removedIds)
         downloadTaskStore.removeMany(removedIds)
 
         if (failedIds.isNotEmpty()) {

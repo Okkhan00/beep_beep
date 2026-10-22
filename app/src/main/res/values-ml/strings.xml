@@ -278,10 +278,6 @@
     <string name="queue_subtitle_empty">ഇതുവരെ ഡൗൺലോഡുകളില്ല. ടാസ്ക്കുകൾ തുടങ്ങുമ്പോൾ അവയുടെ നിലകൾ ഇവിടെ പ്രത്യക്ഷപ്പെടും.</string>
     <string name="queue_subtitle_all">എല്ലാ നിലകളിലായി %1$d ഡൗൺലോഡുകൾ ട്രാക്ക് ചെയ്യുന്നു</string>
     <string name="queue_subtitle_filtered">%2$s-ൽ ഇപ്പോൾ %1$d ഇനങ്ങൾ</string>
-    <string name="queue_recovery_stuck_youtube">ഈ YouTube ഇനം %1$s ആയി അപ്‌ഡേറ്റ് ചെയ്തിട്ടില്ല. പ്ലേബാക്ക് ആക്‌സസ് പരിശോധനകൾ ഡൗൺലോഡ് തടസപ്പെടുത്തുമ്പോൾ കുക്കികളോ PO generation-ഓ സാധാരണയായി സഹായിക്കും.</string>
-    <string name="queue_recovery_stuck">ഈ ഇനം %1$s ആയി അപ്‌ഡേറ്റ് ചെയ്തിട്ടില്ല. സൈറ്റ് സൈൻ-ഇൻ ചെയ്തതോ പ്രദേശത്തോട് പൊരുത്തമുള്ളതോ ആയ സെഷൻ ആവശ്യപ്പെട്ടാൽ കുക്കികൾ സഹായിക്കും.</string>
-    <string name="queue_recovery_youtube">ക്രമീകരണങ്ങളിൽനിന്നോ More-ൽ നിന്നോ കുക്കികൾ ചേർത്തും PO generation പുതുക്കിയും നോക്കിയാൽ YouTube പരാജയങ്ങൾ പലപ്പോഴും മെച്ചപ്പെടും.</string>
-    <string name="queue_recovery_default">റീഡയറക്ട്, rate limit, അല്ലെങ്കിൽ സംരക്ഷിത ആക്‌സസ് കാരണം ഈ ഡൗൺലോഡ് പരാജയപ്പെട്ടാൽ ആദ്യം കുക്കികൾ ശ്രമിക്കുക. ഇപ്പോഴും പരാജയപ്പെട്ടാൽ ലോഗുകൾ എക്സ്പോർട്ട് ചെയ്ത് പ്രശ്നം റിപ്പോർട്ട് ചെയ്യുക.</string>
     <string name="history_title">ഹിസ്റ്ററി</string>
     <string name="history_task_summary">ടാസ്‌ക് സംഗ്രഹം</string>
     <string name="history_empty_title">ഇനിയും പൊരുത്തപ്പെടുന്ന ഹിസ്റ്ററിയില്ല</string>

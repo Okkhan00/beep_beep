@@ -278,10 +278,6 @@
     <string name="queue_subtitle_empty">ఇంకా డౌన్‌లోడ్లు లేవు. tasks ప్రారంభమైతే వాటి స్థితులు ఇక్కడ కనిపిస్తాయి.</string>
     <string name="queue_subtitle_all">అన్ని స్థితులలో %1$d డౌన్‌లోడ్లు ట్రాక్ చేయబడుతున్నాయి</string>
     <string name="queue_subtitle_filtered">ప్రస్తుతం %2$s లో %1$d అంశాలు ఉన్నాయి</string>
-    <string name="queue_recovery_stuck_youtube">ఈ YouTube item %1$s నుంచి నవీకరించబడలేదు. playback access checks download ను ఆపితే cookies లేదా PO generation సహాయపడతాయి.</string>
-    <string name="queue_recovery_stuck">ఈ item %1$s నుంచి నవీకరించబడలేదు. site కి signed-in లేదా region-matched session అవసరమైతే cookies సహాయపడవచ్చు.</string>
-    <string name="queue_recovery_youtube">Settings లేదా More నుంచి cookies జోడించి PO generation refresh చేసిన తర్వాత YouTube failures తరచుగా సరిచేస్తాయి.</string>
-    <string name="queue_recovery_default">redirects, rate limits, లేదా protected access తర్వాత ఈ download విఫలమైతే ముందుగా cookies ప్రయత్నించండి. ఇంకా fail అయితే logs ఎగుమతి చేసి సమస్యను నివేదించండి.</string>
     <string name="history_title">చరిత్ర</string>
     <string name="history_task_summary">task సారాంశం</string>
     <string name="history_empty_title">ఇంకా సరిపడే history లేదు</string>

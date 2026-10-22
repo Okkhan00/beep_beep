@@ -150,7 +150,7 @@ fun SettingsScreen(
         item {
             SettingItem(
                 title = stringResource(R.string.settings_access_title),
-                description = "Network rules, cookies, and YouTube access",
+                description = "Network rules for mobile data and Wi-Fi",
                 icon = Icons.Rounded.Security,
                 onClick = onOpenAccess,
             )
@@ -252,20 +252,6 @@ private fun buildAccessSummary(uiState: FormatUiState, context: android.content.
     } else {
         resources.getString(R.string.settings_access_summary_wifi)
     }
-    val cookieSummary = if (uiState.cookieProfiles.isEmpty()) {
-        resources.getString(R.string.settings_access_summary_no_cookies)
-    } else {
-        resources.getQuantityString(
-            R.plurals.settings_access_summary_cookie_count,
-            uiState.cookieProfiles.size,
-            uiState.cookieProfiles.size,
-        )
-    }
-    val youtubeSummary = if (uiState.youtubeAuthConfig.isConfigured()) {
-        resources.getString(R.string.settings_access_summary_youtube_configured)
-    } else {
-        resources.getString(R.string.settings_access_summary_youtube_missing)
-    }
-    return "$networkSummary $cookieSummary $youtubeSummary"
+    return networkSummary
 }
 
