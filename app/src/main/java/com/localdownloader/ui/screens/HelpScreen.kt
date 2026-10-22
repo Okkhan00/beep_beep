@@ -677,11 +677,7 @@ private fun getHelpTopics(): List<HelpTopic> = listOf(
         icon = Icons.Outlined.Security,
         title = "Supported and unsupported sources",
         summary = "What this app can and cannot download.",
-        body = "The app downloads publicly accessible media that yt-dlp can extract without logging in.
-
-• Not supported: DRM-protected streams, paywalled or members-only content, content that requires an account login, and private posts.
-• The app does not import cookies, store account credentials, or work around platform restrictions.
-• Only download content you own or have permission to download, and follow the terms of the source site and your local law.",
+        body = "The app downloads publicly accessible media that yt-dlp can extract without logging in.\n\n• Not supported: DRM-protected streams, paywalled or members-only content, content that requires an account login, and private posts.\n• The app does not import cookies, store account credentials, or work around platform restrictions.\n• Only download content you own or have permission to download, and follow the terms of the source site and your local law.",
         tips = listOf(
             "If a link needs you to sign in, the app will report it as unsupported rather than trying to bypass it.",
             "Updating yt-dlp from Settings -> Updates can fix extractor errors on public links.",
